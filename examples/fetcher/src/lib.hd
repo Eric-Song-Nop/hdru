@@ -1,12 +1,12 @@
 use dep.ui.{
     Palette,
-    Resource,
+    Snapshot,
     Signal,
     Style,
     Ui,
     button,
     column,
-    resource,
+    query,
     rgb,
     rgba,
     row,
@@ -22,11 +22,13 @@ fn fetch_profile!(id: i32) -> Result[string, string] $ Clock:
     $.use(Clock).sleep!(ms(400))
     if id == 13: .Err("unlucky") else: .Ok("profile of user $id")
 
-fn describe(state: Resource[string, string]) -> string:
+fn describe(state: Snapshot[string, string]) -> string:
     match state:
+        .Idle => ""
         .Loading => "loading…"
+        .Refreshing(value) => "$value (refreshing…)"
         .Ready(value) => value
-        .Failed(error) => "failed: $error"
+        .Failed(error, _) => "failed: $error"
 
 ## The profile of the user `id` names. Its row says it needs a clock, and
 ## it reads one from inside the `column:` of `app`: a builder's block runs
@@ -35,7 +37,7 @@ fn describe(state: Resource[string, string]) -> string:
 ## whose own row stays honest.
 fn profile(id: Signal[i32]) -> void $ Ui + Clock:
     let clock: *mut dyn Clock = $.use(Clock)
-    loaded := resource(
+    loaded := query(
         fn(): id.get(),
         fn!(key: i32) -> Result[string, string]:
             $.with(Clock=clock):
@@ -47,12 +49,16 @@ fn profile(id: Signal[i32]) -> void $ Ui + Clock:
     # failure. On the DOM the text inherits it from this view.
     view:
         style_live:
-            match loaded.get():
+            match loaded.snapshot.get():
+                .Idle => Style::empty()
+                .Refreshing(_) => Style::empty().color(p.muted)
                 .Loading => Style::empty().color(p.muted)
                 .Ready(_) => Style::empty().color(p.on_surface)
-                .Failed(_) => Style::empty().color(rgb(190, 40, 40))
+                .Failed(_, _) => Style::empty().color(rgb(190, 40, 40))
         text:
-            describe(loaded.get())
+            describe(loaded.snapshot.get())
+        button(fn(): loaded.refresh()):
+            text(fn(): "refresh")
 
 ## A button that reads on either palette.
 fn quiet() -> Style:

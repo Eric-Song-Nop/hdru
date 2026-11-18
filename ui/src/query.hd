@@ -1,0 +1,115 @@
+use std.function.Fn
+use dep.reactive.{Mutate, Owner, ReadSignal, Reactive, Signal, Track, signal}
+use pkg.keys.Ui
+use pkg.runtime.{Runtime, drop_job, in_runtime, replace_job, runtime, ui_cleanup, ui_effect}
+use pkg.builders.show
+
+@derive(Eq, Debug)
+pub enum Snapshot[T, E]:
+    Idle
+    Loading
+    Ready(value: T)
+    Refreshing(value: T)
+    Failed(error: E, previous: T?)
+
+impl[T, E] Snapshot[T, E]:
+    pub fn value(self) -> T?:
+        match self:
+            .Ready(value) => .Some(value)
+            .Refreshing(value) => .Some(value)
+            .Failed(_, previous) => previous
+            _ => .None
+
+pub struct Query[T < 'static, E < 'static]:
+    pub snapshot: ReadSignal[Snapshot[T, E]]
+    revision: Signal[usize]
+
+impl[T < 'static, E < 'static] Query[T, E]:
+    pub fn refresh(self) -> void $ Mutate:
+        self.revision.update(fn(value): value + 1)
+
+struct Request[K]:
+    key: K?
+    generation: usize
+    job: usize?
+    rt: *mut Runtime
+
+fn publish![K < 'static, T < 'static, E < 'static](
+    request: *mut Request[K], generation: usize, pending: Suspend[Result[T, E]], state: Signal[Snapshot[T, E]],
+) -> void $ Mutate:
+    result := pending!()
+    if generation == request.generation:
+        in_runtime(request.rt, fn() -> void $ Mutate:
+            request.job = .None
+            match result:
+                .Ok(value) => state.set(.Ready(value))
+                .Err(why) => state.set(.Failed(why, state.peek().value()))
+        )
+
+## None pauses dependent loads until the upstream key becomes available.
+pub fn query_when[K < 'static & Eq, T < 'static, E < 'static,
+    Key < 'static & Fn() -> K? $ Track, Load < 'static & Fn(K) -> Suspend[Result[T, E]],
+](key: Key, load: Load, retain_on_change: bool = false) -> Query[T, E] $ Ui:
+    owner := $.use(Owner).owner()
+    revision := signal(0)
+    state := signal::[Snapshot[T, E]](.Idle)
+    request := box(Request::[K] { key: .None, generation: 0, job: .None, rt: runtime() })
+    _ := ui_effect(owner, fn() -> bool $ Reactive:
+        _ := revision.get()
+        next := key()
+        request.generation += 1
+        match next:
+            .None =>
+                if request.job.is_some():
+                    drop_job(request.job.expect("pending"))
+                request.job = .None
+                state.set(.Idle)
+            .Some(k) =>
+                previous := if retain_on_change || request.key == next: state.peek().value() else: .None
+                match previous:
+                    .Some(value) => state.set(.Refreshing(value))
+                    .None => state.set(.Loading)
+                request.job = .Some(replace_job(request.job, publish(request, request.generation, load(k), state)))
+        request.key = next
+        false
+    )
+    ui_cleanup(owner, fn() -> void:
+        request.generation += 1
+        match request.job:
+            .Some(id) => drop_job(id)
+            .None => pass
+    )
+    Query { snapshot: state.read(), revision: revision }
+
+pub fn query[K < 'static & Eq, T < 'static, E < 'static,
+    Key < 'static & Fn() -> K $ Track, Load < 'static & Fn(K) -> Suspend[Result[T, E]],
+](key: Key, load: Load, retain_on_change: bool = false) -> Query[T, E] $ Ui:
+    query_when(fn(): .Some(key()), load, retain_on_change)
+
+@derive(Eq)
+pub struct PanelState[E]:
+    pub ready: bool
+    pub pending: bool
+    pub error: E?
+
+impl[T, E] Snapshot[T, E]:
+    pub fn status(self) -> PanelState[E]:
+        match self:
+            .Failed(error, value) => PanelState { ready: value.is_some(), pending: false, error: .Some(error) }
+            .Ready(_) => PanelState { ready: true, pending: false, error: .None }
+            .Refreshing(_) => PanelState { ready: true, pending: true, error: .None }
+            .Idle => PanelState { ready: false, pending: true, error: .None }
+            .Loading => PanelState { ready: false, pending: true, error: .None }
+
+impl[E] PanelState[E]:
+    pub fn and(self, other: PanelState[E]) -> PanelState[E]:
+        PanelState { ready: self.ready && other.ready, pending: self.pending || other.pending,
+            error: if self.error.is_some(): self.error else: other.error }
+
+## Resource owners live above these disposable visual branches.
+pub fn async_panel[E < 'static, S < 'static & Fn() -> PanelState[E] $ Track,
+    C < 'static & Fn() -> void $ Ui, P < 'static & Fn() -> void $ Ui, F < 'static & Fn() -> void $ Ui,
+](status: S, content: C, pending: P, failed: F) -> void $ Ui:
+    show(fn(): status().ready, content)
+    show(fn(): !status().ready && status().pending && status().error.is_none(), pending)
+    show(fn(): status().error.is_some(), failed)

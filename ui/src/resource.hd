@@ -7,7 +7,7 @@ use std.task.{Layer, apply}
 use std.time.Clock
 use dep.reactive.{Mutate, Owner, OwnerId, ReadSignal, Reactive, Signal, Track, signal}
 use pkg.keys.Ui
-use pkg.runtime.{Runtime, in_runtime, runtime, drop_job, register_job}
+use pkg.runtime.{Runtime, in_runtime, runtime, drop_job, replace_job}
 
 ## What a resource holds: nothing yet, the loaded value, or the loader's
 ## error.
@@ -66,11 +66,8 @@ fn follow_key[
         k := key()
         generation.current += 1
         mine := generation.current
-        match generation.queued:
-            .Some(stale) => drop_job(stale)
-            .None => pass
         state.set(.Loading)
-        id := register_job(job(k, mine))
+        id := replace_job(generation.queued, job(k, mine))
         generation.queued = .Some(id)
         false
     _ := ui_effect(owner, run)

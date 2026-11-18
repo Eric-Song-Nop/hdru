@@ -4,7 +4,7 @@
 ## is synchronous except `run_job!`; a renderer package such as `ui-dom`
 ## supplies the loop that moves commands, events and jobs across a host.
 use std.function.FnMut
-use std.task.{Receiver, Sender, channel}
+use std.task.{Receiver, Sender, channel, race}
 use dep.reactive.{Graph, Reactive, ComputationId, graph, with_graph, run_effect, cleanup_on, dispose, Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
 use pkg.keys.{HandlerId, NodeId, Parent, Scope, Ui}
 use pkg.protocol.{Command, UiEvent}
@@ -12,6 +12,8 @@ use pkg.protocol.{Command, UiEvent}
 ## A resource load waiting for a worker: a cold suspension that drives
 ## the loader and lands its result.
 pub struct Job:
+    id: usize
+    stop: Receiver[void]
     pub task: Suspend[void]
 
 pub struct Runtime:
@@ -30,6 +32,7 @@ pub struct Runtime:
     next_node: usize
     next_handler: usize
     ## Jobs by id, until a worker takes one.
+    stops: Map[usize, Sender[void]]
     jobs: Map[usize, Job]
     ## Ids registered since the loop last took them.
     unposted: List[usize]
@@ -61,7 +64,7 @@ pub fn new_runtime(realm: *mut Graph) -> *mut Runtime:
         work: Pulse { pair: .None },
         output: Pulse { pair: .None },
         stop: Pulse { pair: .None },
-        out: [], handlers: {}, next_node: 1, next_handler: 1, jobs: {}, unposted: [], next_job: 1, ready: [], last_writes: [],
+        out: [], handlers: {}, next_node: 1, next_handler: 1, jobs: {}, stops: {}, unposted: [], next_job: 1, ready: [], last_writes: [],
     })
 
 struct Selection:
@@ -143,17 +146,35 @@ pub fn register_job(task: Suspend[void]) -> usize:
     rt := runtime()
     id := rt.next_job
     rt.next_job += 1
-    rt.jobs[id] = Job { task: task }
+    let (stop, stopped) = channel::[void](capacity=1)
+    rt.stops[id] = stop
+    rt.jobs[id] = Job { id: id, stop: stopped, task: task }
     if rt.unposted.is_empty():
         rt.work.notify()
     rt.unposted.push(id)
     id
 
-## Forgets a job a worker has not taken yet; a cold suspension needs no
-## cleanup. A job already running completes and its result is dropped by
-## the resource's generation check.
+## Reuse a queued position on refresh. A running job is superseded locally.
+pub fn replace_job(old: usize?, task: Suspend[void]) -> usize:
+    rt := runtime()
+    match old:
+        .Some(id) =>
+            if rt.jobs.contains_key(id):
+                rt.jobs[id].task = task
+                return id
+            drop_job(id)
+        .None => pass
+    register_job(task)
+
 pub fn drop_job(id: usize) -> void:
-    _ := runtime().jobs.remove(id)
+    rt := runtime()
+    match rt.stops.remove(id):
+        .Some(stop) => stop.close()
+        .None => pass
+    if rt.jobs.remove(id).is_some():
+        match rt.unposted.index_of(id):
+            .Some(index) => _ := rt.unposted.remove_at(index)
+            .None => pass
 
 ## Drains and returns the queued commands.
 pub fn take_commands() -> List[Command]:
@@ -178,11 +199,17 @@ pub fn pop_job(rt: *mut Runtime) -> Job?:
             .None => pass
     .None
 
+fn stopped!(stop: Receiver[void]) -> void:
+    _ := stop.recv!()
+
+pub fn drive_job!(rt: *mut Runtime, job: Job) -> void:
+    race!(stopped(job.stop), job.task)
+    _ := rt.stops.remove(job.id)
+
 pub fn run_job!(id: usize) -> void:
-    match runtime().jobs.remove(id):
-        .Some(job) =>
-            let mut task = job.task
-            task!()
+    rt := runtime()
+    match rt.jobs.remove(id):
+        .Some(job) => drive_job!(rt, job)
         .None => pass
 
 ## Builds `root` under a fresh owner, appending to node 0, and flushes.
@@ -237,6 +264,9 @@ pub fn reset_for_test() -> void:
     rt.handlers = {}
     rt.next_node = 1
     rt.next_handler = 1
+    for (_, stop) in rt.stops:
+        stop.close()
+    rt.stops = {}
     rt.jobs = {}
     rt.unposted = []
     rt.next_job = 1
@@ -272,6 +302,9 @@ pub fn finish(rt: *mut Runtime) -> void:
     rt.root = .None
     rt.handlers = {}
     rt.ready = []
+    for (_, stop) in rt.stops:
+        stop.close()
+    rt.stops = {}
     rt.jobs = {}
     rt.unposted = []
     rt.out = []

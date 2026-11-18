@@ -1,0 +1,107 @@
+use pkg.{Ui, UiEvent, effect, actions, async_panel, button, dispatch, mount, query, query_when, reset_for_test, signal, text}
+use pkg.runtime.{run_job, take_new_jobs}
+use std.ops.Disposable
+use std.task.{Receiver, channel, join, map_join}
+use std.testing.assert_equal
+
+fn drain!() -> void:
+    for id in take_new_jobs():
+        run_job!(id)
+
+fn click(id: usize) -> void:
+    dispatch(UiEvent { handler: id, payload: "" })
+
+struct Cleanup:
+    ended: *mut List[usize]
+    id: usize
+
+impl Disposable for Cleanup:
+    fn dispose(&mut self) -> void:
+        self.ended.push(self.id)
+
+fn invalidate!(rx: Receiver[void]) -> void:
+    for _i in 0..4:
+        _ := rx.recv!()
+    click(1)
+
+it("four obsolete in-flight loads clean up and their replacements run"):
+    reset_for_test()
+    let (started, rx) = channel::[void](capacity=4)
+    let (_hold, hold) = channel::[void](capacity=1)
+    ended := box::[List[usize]]([])
+    landed := box::[List[usize]]([])
+    _ := mount:
+        revision := signal(0)
+        button(fn(): revision.set(1)):
+            text(fn(): "change")
+        for i in 0..4:
+            _ := query(fn(): revision.get(), fn!(key: usize) -> Result[usize, string]:
+                if key == 0:
+                    using guard = Cleanup { ended: ended, id: i }
+                    started.send!(())
+                    _ := hold.recv!()
+                landed.push(i)
+                .Ok(i)
+            )
+    ids := take_new_jobs()
+    _ := join!(map_join(ids, 4, fn!(id: usize) -> void: run_job!(id)), invalidate(rx))
+    assert_equal(ended.len(), 4, reason="every load cleaned up")
+    assert_equal(landed.len(), 0, reason="obsolete bodies stopped")
+    drain!()
+    assert_equal(landed.len(), 4, reason="all replacements ran")
+
+it("same-key refresh keeps content and a new key starts empty"):
+    reset_for_test()
+    log := box::[List[string]]([])
+    _ := mount:
+        id := signal(+1)
+        user := query(fn(): id.get(), fn!(key: i32) -> Result[string, string]:
+            if key == 2: .Err("missing") else: .Ok("one")
+        )
+        button(fn(): user.refresh()):
+            text(fn(): "retry")
+        button(fn(): id.set(+2)):
+            text(fn(): "other")
+        async_panel(fn(): user.snapshot.get().status(),
+            fn(): text(fn(): user.snapshot.get().value().expect("content")),
+            fn(): text(fn(): "loading"), fn(): text(fn(): "error"))
+        effect(fn():
+            match user.snapshot.get():
+                .Idle => log.push("idle")
+                .Ready(value) => log.push(value)
+                .Loading => log.push("loading")
+                .Refreshing(value) => log.push("refresh $value")
+                .Failed(error, _) => log.push(error)
+        )
+    drain!()
+    click(1)
+    drain!()
+    click(2)
+    drain!()
+    assert_equal(*log, ["loading", "one", "refresh one", "one", "loading", "missing"], reason="transitions")
+
+it("failing the first save only rolls back its own optimistic edit"):
+    reset_for_test()
+    views := box::[List[i32]]([])
+    requests := box::[List[usize]]([])
+    _ := mount:
+        model := actions(+10, fn(base: i32, edit: i32): base + edit,
+            fn!(id: usize, edit: i32, base: i32) -> Result[i32, string]:
+                requests.push(id)
+                if id == 1 && requests.len() == 1: .Err("offline") else: .Ok(base + edit)
+        )
+        button(fn(): _ := model.submit(+2)):
+            text(fn(): "first")
+        button(fn(): _ := model.submit(+5)):
+            text(fn(): "second")
+        button(fn(): model.retry(1)):
+            text(fn(): "retry")
+        effect(fn(): views.push(model.visible.get()))
+    click(1)
+    click(2)
+    drain!()
+    assert_equal(views.last(), .Some(+15), reason="later edit survived")
+    click(3)
+    drain!()
+    assert_equal(views.last(), .Some(+17), reason="retry confirmed")
+    assert_equal(*requests, [1, 2, 1], reason="same mutation id on retry")

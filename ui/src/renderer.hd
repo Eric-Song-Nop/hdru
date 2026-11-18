@@ -8,7 +8,7 @@ use std.ops.Disposable
 use dep.reactive.new_graph
 use pkg.keys.Ui
 use pkg.protocol.{Command, UiEvent}
-use pkg.runtime.{Runtime, commands, deliver, finish, in_runtime, is_closed, mount_in, unmount, pop_job, run_ready}
+use pkg.runtime.{Runtime, commands, deliver, finish, in_runtime, is_closed, drive_job, mount_in, unmount, pop_job, run_ready}
 
 ## What a renderer does. `apply!` consumes one batch of commands and
 ## `next_event!` waits for the next user event; a handler of 0 ends the loop.
@@ -62,8 +62,7 @@ fn worker!(rt: *mut Runtime) -> void $ Renderer:
         wait := rt.work.receiver()
         match pop_job(rt):
             .Some(job) =>
-                let mut task = job.task
-                task!()
+                drive_job!(rt, job)
                 send!(rt)
             .None =>
                 if rt.ended || is_closed(rt):
