@@ -7,7 +7,7 @@ use std.function.FnMut
 use std.task.{Receiver, Sender, channel, race}
 use dep.reactive.{Graph, Reactive, ComputationId, graph, with_graph, run_effect, cleanup_on, dispose, Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
 use pkg.keys.{HandlerId, NodeId, Parent, Scope, Ui}
-use pkg.protocol.{Command, UiEvent}
+use pkg.protocol.{Command, Packet, Payload, UiEvent}
 
 ## A resource load waiting for a worker: a cold suspension that drives
 ## the loader and lands its result.
@@ -16,7 +16,14 @@ pub struct Job:
     stop: Receiver[void]
     pub task: Suspend[void]
 
+struct Listener:
+    raw: fn(string) -> void $ Mutate
+    typed: fn(Payload) -> void $ Mutate
+
 pub struct Runtime:
+    pub generation: usize
+    pub last_event_error: string?
+    pub next_field: usize
     realm: *mut Graph
     root: OwnerId?
     closed: bool
@@ -28,7 +35,7 @@ pub struct Runtime:
     pub output: Pulse
     pub stop: Pulse
     out: List[Command]
-    handlers: Map[HandlerId, fn(string) -> void $ Mutate]
+    handlers: Map[HandlerId, Listener]
     next_node: usize
     next_handler: usize
     ## Jobs by id, until a worker takes one.
@@ -58,8 +65,13 @@ impl Pulse:
             .None => pass
         self.pair = .None
 
+NEXT_MOUNT := box::[usize](1)
+
 pub fn new_runtime(realm: *mut Graph) -> *mut Runtime:
+    generation := *NEXT_MOUNT
+    *NEXT_MOUNT += 1
     box(Runtime {
+        generation: generation, next_field: 1, last_event_error: .None,
         realm: realm, root: .None, closed: false, writing: false, drained: false, ended: false, running: false,
         work: Pulse { pair: .None },
         output: Pulse { pair: .None },
@@ -129,13 +141,24 @@ pub fn run_ready() -> void:
     flush()
 
 ## Registers a handler and returns its id.
-pub fn register_handler[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> HandlerId:
+pub fn register_listener[F < 'static & FnMut(string) -> void $ Mutate, T < 'static & FnMut(Payload) -> void $ Mutate](
+    mut raw: F, mut typed: T,
+) -> HandlerId:
     rt := runtime()
     id := rt.next_handler
     rt.next_handler += 1
-    erased := fn(payload: string) -> void $ Mutate: handler(payload)
-    rt.handlers[id] = erased
+    rt.handlers[id] = Listener {
+        raw: fn(value: string) -> void $ Mutate: raw(value),
+        typed: fn(value: Payload) -> void $ Mutate: typed(value),
+    }
     id
+
+pub fn register_handler[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> HandlerId:
+    register_listener(fn(value: string) -> void $ Mutate: handler(value),
+        fn(value: Payload) -> void $ Mutate: handler(value.as_text()))
+
+pub fn unexpected(expected: string) -> void:
+    runtime().last_event_error = .Some("expected $expected")
 
 pub fn drop_handler(id: HandlerId) -> void:
     _ := runtime().handlers.remove(id)
@@ -244,7 +267,7 @@ pub fn dispatch(event: UiEvent) -> void:
             payload := event.payload
             log := box(WriteLog { sources: [] })
             $.with(Mutate=log):
-                batch(fn() -> void $ Mutate: handler(payload))
+                batch(fn() -> void $ Mutate: (handler.raw)(payload))
             runtime().last_writes = log.sources
         .None => runtime().last_writes = []
     flush()
@@ -316,3 +339,17 @@ pub fn unmount(rt: *mut Runtime) -> void:
 
 pub fn is_closed(rt: *mut Runtime) -> bool:
     rt.closed
+
+pub fn deliver_packet(rt: *mut Runtime, event: Packet) -> void:
+    if rt.closed || event.generation != rt.generation:
+        return
+    in_runtime(rt, fn() -> void:
+        rt.last_event_error = .None
+        log := box(WriteLog { sources: [] })
+        match rt.handlers.get(event.handler):
+            .Some(listener) =>
+                $.with(Mutate=log):
+                    batch(fn() -> void $ Mutate: (listener.typed)(event.payload))
+            .None => pass
+        rt.last_writes = log.sources
+    )

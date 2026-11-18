@@ -1,3 +1,4 @@
+import { checkVersion, legacy, packet } from "../../ui/protocol/events.mjs";
 // The provider for `ui-dom`'s `surface.Surface`.
 //
 // In a browser it drives the real DOM under the element with id "app".
@@ -123,6 +124,8 @@ export function cssFor(key, value) {
 
 // The style a kind starts with, and the element it makes.
 const kinds = {
+  label: { tag: "label", css: {} },
+  select: { tag: "select", css: {} },
   box: { tag: "div", css: { display: "flex", flexDirection: "column" } },
   text: { tag: "span", css: {} },
   button: { tag: "button", css: {} },
@@ -160,7 +163,7 @@ const taken = new WeakMap();
 function takeKeys(element, names) {
   if (!taken.has(element)) {
     element.addEventListener("keydown", (domEvent) => {
-      if (!domEvent.isComposing && taken.get(element).has(chordOf(domEvent))) domEvent.preventDefault();
+      if (!domEvent.isComposing && domEvent.keyCode !== 229 && taken.get(element).has(chordOf(domEvent))) domEvent.preventDefault();
     });
   }
   taken.set(element, new Set(names === "" ? [] : names.split("\n")));
@@ -173,8 +176,12 @@ function warnOnce(seen, what, log) {
 }
 
 // `trace` receives a line per batch and command; `log` what the renderer ignored.
+let surfaceSerial = 0;
+
 export function createDomSurface(root, nodes = new Map(), log = (line) => console.warn(line), trace = (line) => console.log(line)) {
   nodes.set(0, root);
+  const prefix = `hdru-${++surfaceSerial}-`;
+  let generation = 0;
   const queue = [];
   const seen = new Set();
   let waiting = null;
@@ -206,6 +213,24 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
       element.checked = !unset && f.value;
     } else if (key === "disabled") {
       element.disabled = !unset && f.value;
+    } else if (key === "choices") {
+      element.replaceChildren(...(unset ? [] : f.items).map(({ key, label }) => {
+        const option = document.createElement("option");
+        option.value = key;
+        option.textContent = label;
+        return option;
+      }));
+    } else if (key === "field_id" || key === "description_id") {
+      element.id = prefix + (key === "field_id" ? "field-" : "error-") + f.value;
+    } else if (key === "label_for") {
+      element.htmlFor = prefix + "field-" + f.value;
+    } else if (key === "described_by") {
+      if (unset) element.removeAttribute("aria-describedby");
+      else element.setAttribute("aria-describedby", prefix + "error-" + f.value);
+    } else if (key === "invalid" || key === "accessible_name") {
+      const attribute = key === "invalid" ? "aria-invalid" : "aria-label";
+      if (unset) element.removeAttribute(attribute);
+      else element.setAttribute(attribute, String(f.value));
     } else if (key === "take_keys") {
       takeKeys(element, unset ? "" : f.value);
     } else if (key === "dom:class") {
@@ -223,6 +248,20 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
   const apply = (command) => {
     const f = command.fields;
     switch (command.tag) {
+      case "Begin":
+        checkVersion(f.version);
+        if (generation && generation !== f.generation) {
+          forgetDescendants(root);
+          root.replaceChildren();
+        }
+        generation = f.generation;
+        queue.length = 0;
+        break;
+      case "Focus": {
+        const target = nodes.get(f.node);
+        if (target && !target.disabled && target.isConnected) target.focus();
+        break;
+      }
       case "Create": {
         let kind = kinds[f.kind];
         if (!kind) {
@@ -251,21 +290,23 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
       case "Listen": {
         const handler = f.handler;
         const element = node(f.node);
-        if (f.event === "enter") {
-          element.addEventListener("keydown", (domEvent) => {
-            if (domEvent.key === "Enter") push({ handler, payload: payloadOf(domEvent.target) });
+        const mounted = generation;
+        const send = (name, value) => push(packet(mounted, handler, name, value));
+        if (f.event === "enter" || f.event === "key") {
+          element.addEventListener("keydown", (event) => {
+            if (event.isComposing || event.keyCode === 229) return;
+            if (f.event === "key") send("key", chordOf(event));
+            else if (event.key === "Enter") send("enter", payloadOf(event.target));
           });
-        } else if (f.event === "key") {
-          element.addEventListener("keydown", (domEvent) => {
-            if (!domEvent.isComposing) push({ handler, payload: chordOf(domEvent) });
+        } else if (["click", "input", "change", "select"].includes(f.event)) {
+          element.addEventListener(f.event === "select" ? "change" : f.event, (event) => {
+            if (f.event === "change" && event.target?.type === "checkbox") send("change", event.target.checked);
+            else if (f.event === "change") send("dom:change", payloadOf(event.target));
+            else send(f.event, payloadOf(event.target));
           });
-        } else if (f.event === "click" || f.event === "input" || f.event === "change") {
-          element.addEventListener(f.event, (domEvent) => push({ handler, payload: payloadOf(domEvent.target) }));
         } else if (f.event.startsWith("dom:")) {
-          // The DOM's own events. A CustomEvent from the page carries its payload.
-          element.addEventListener(f.event.slice("dom:".length), (domEvent) => {
-            const payload = typeof domEvent.detail === "string" ? domEvent.detail : payloadOf(domEvent.target);
-            push({ handler, payload });
+          element.addEventListener(f.event.slice(4), (event) => {
+            send(f.event, typeof event.detail === "string" ? event.detail : payloadOf(event.target));
           });
         } else {
           warnOnce(seen, `event ${f.event}`, log);
@@ -299,7 +340,8 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
         trace(`ui:   ${command.tag} ${JSON.stringify(command.fields)}`);
       }
     },
-    next_event() {
+    next_event() { return legacy(this.next_event_v2()); },
+    next_event_v2() {
       if (queue.length) return queue.shift();
       return new Promise((resolve) => {
         waiting = resolve;
@@ -328,6 +370,8 @@ function valueText(value) {
 
 export function createScriptedSurface(clicks, print, nodes = new Map()) {
   nodes.set(0, { id: 0, kind: "root", children: [], text: "", attrs: {} });
+  let generation = 0;
+  const listeners = new Map();
   const node = (id) => {
     const found = nodes.get(id);
     if (!found) throw new Error(`ui: unknown node ${id}`);
@@ -352,6 +396,13 @@ export function createScriptedSurface(clicks, print, nodes = new Map()) {
   const apply = (command) => {
     const f = command.fields;
     switch (command.tag) {
+      case "Begin":
+        checkVersion(f.version);
+        if (generation && generation !== f.generation) apply({ tag: "Clear", fields: { node: 0 } });
+        generation = f.generation;
+        listeners.clear();
+        break;
+      case "Focus": break;
       case "Create":
         nodes.set(f.node, { id: f.node, kind: f.kind, children: [], text: "", attrs: {} });
         break;
@@ -375,6 +426,7 @@ export function createScriptedSurface(clicks, print, nodes = new Map()) {
         else node(f.node).attrs[f.key] = valueText(f.value);
         break;
       case "Listen":
+        listeners.set(f.handler, f.event);
         node(f.node).attrs[`on:${f.event}`] = String(f.handler);
         break;
       case "Remove": {
@@ -412,14 +464,16 @@ export function createScriptedSurface(clicks, print, nodes = new Map()) {
       }
       print(render(node(0), 0).join("\n"));
     },
-    next_event() {
+    next_event() { return legacy(this.next_event_v2()); },
+    next_event_v2() {
       if (!clicks.length) {
         print("-- no more scripted events; stopping");
-        return { handler: 0, payload: "" };
+        return packet(generation, 0, "click", "");
       }
       const { handler, payload } = clicks.shift();
       print(payload === "" ? `-- click handler ${handler}` : `-- event for handler ${handler}: ${JSON.stringify(payload)}`);
-      return { handler, payload };
+      const name = listeners.get(handler) ?? "click";
+      return packet(generation, handler, name, name === "change" ? payload === "true" : payload);
     },
   };
 }

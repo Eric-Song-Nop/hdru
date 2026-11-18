@@ -226,12 +226,7 @@ changes. It is a `ReadSignal[Resource[T, E]]` of `Loading`, `Ready` or `Failed`.
 there is no way to start a task later, so `run_on!` starts a fixed set of workers beside the
 event loop, with `join!` and `map_join!`.
 
-**Jobs wait in a plain list, and a channel only wakes workers.** `std.task`'s usual pool sends
-items down a shared channel (`std-task.channel.pool`), but here that capacity would be a trap: a
-worker hands over the jobs its own load made, so with the channel full every worker could wait on
-`send!` at once, and the program would die of `suspension-deadlock`. So a token is sent only for a
-worker counted idle, the tokens never outnumber the capacity, and `send!` never waits. Hosts stay out
-of it, so `Renderer` has only `apply!` and `next_event!`.
+Each mount queues its own cold jobs. Workers obtain a receiver before inspecting the queue. Adding work closes the shared wake channel and creates a fresh one for the next idle period. Workers check the queue again after waking.
 
 **A loader has the empty row.** Its providers are bound when the cold suspension is
 made, inside the resource's tracking computation, which cannot carry a row
@@ -257,15 +252,9 @@ every sleep completes at once and a sleeping loader always beats the deadline.
 ## The run loop
 
 `run_on!(root)` lives in `ui`, on the `Renderer` trait, and each renderer package adapts its host trait to it in `run_app!`.
-It mounts, sends the first batch, then runs `join!(event_loop(), workers())`.
+Each run starts its surface generation, applies the initial commands, and drives the input reader, command writer and four workers together. An empty-to-nonempty outbox transition wakes its writer, including when another mount shares the graph and changes a signal. Each surface has one ordered writer. Ready callbacks run after the corresponding commands are applied.
 
-- `event_loop!` takes `next_event!`, dispatches, and sends, until an event names
-  handler 0. Then it posts job 0. It calls `$.use(Renderer)` fresh each time, so no
-  reference into the provider is live while a handler runs.
-- `worker!` takes a job from the pool, runs it with `run_job!`, and sends what it emitted. With no
-  job it waits on the channel, and once the loop has ended and no job is left it stops. So a load in
-  flight at shutdown still lands, as do any loads it leads to.
-- There are four workers, so at most four loads are in flight at once.
+The reader drops events for earlier generations. On normal end of input, accepted work drains, including jobs created by a successful landing. Explicit disposal closes each job's cancellation channel, wakes the reader and workers, and clears the root. `close_mount!` waits for the running loop's cleanup.
 
 `Recorder` implements `Renderer` in hd for tests: `apply!` logs, and `next_event!` pops a scripted event
 or answers handler 0, so the loop's tests in `ui` need no host at all. Tests below the loop use `mount`,

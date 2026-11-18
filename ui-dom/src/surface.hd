@@ -1,12 +1,12 @@
 ## The DOM renderer's host trait: what the JavaScript provider in
 ## `providers/dom.mjs` implements. The commands and events it carries are
 ## `ui`'s protocol.
-use dep.ui.{Command, UiEvent}
+use dep.ui.{Command, Packet}
 
 ## What a host must provide. `apply!` consumes one batch of commands and
-## `next_event!` waits for the next user event; a handler of 0 ends the
+## `next_event_v2!` waits for the next user event; a handler of 0 ends the
 ## event loop.
 @host
 pub trait Surface:
     fn apply!(&mut self, commands: List[Command]) -> void
-    fn next_event!(&mut self) -> UiEvent
+    fn next_event_v2!(&mut self) -> Packet

@@ -1,0 +1,104 @@
+use pkg.{
+    Choice,
+    Command,
+    Packet,
+    Payload,
+    Runtime,
+    Ui,
+    button,
+    commands,
+    deliver_packet,
+    field,
+    field_input,
+    field_select,
+    mount_in,
+    new_graph,
+    on_submit,
+    show,
+    signal,
+    submit_fields,
+    text,
+}
+use std.testing.assert_equal
+
+fn required(s: string) -> Result[void, string]:
+    if s.trim() == "": .Err("Enter a title") else: .Ok(())
+
+fn form() -> void $ Ui:
+    title := field(.Label("Title"), "", required)
+    category := field(.Accessible("Category"), "one", required)
+    open := signal(true)
+    show(fn(): open.get()):
+        field_input(title):
+            on_submit(fn(value: string): _ := submit_fields([title.check()]))
+    field_select(
+        category,
+        [Choice { key: "one", label: "One" }, Choice { key: "two", label: "Two" }],
+    )
+    text(fn(): category.value.get())
+    button(fn(): open.set(false)):
+        text(fn(): "close")
+    button(fn(): title.focus()):
+        text(fn(): "focus")
+
+fn listener(batch: List[Command], name: string, index: usize = 0) -> (usize, usize):
+    let n: usize = 0
+    for command in batch:
+        match command:
+            .Listen(node, event, handler) =>
+                if event == name:
+                    if n == index:
+                        return (node, handler)
+                    n += 1
+            _ => pass
+    panic("missing listener")
+
+fn send(rt: *mut Runtime, id: usize, payload: Payload) -> List[Command]:
+    deliver_packet(rt, Packet { generation: rt.generation, handler: id, payload: payload })
+    commands(rt)
+
+it("typed fields validate, request focus and reject incompatible or stale events"):
+    rt := mount_in(new_graph(), form)
+    initial := commands(rt)
+    let (node, edit) = listener(initial, "input")
+    submit := listener(initial, "enter")._1
+    assert_equal(
+        initial.contains(.SetProp(node, "field_id", .Text("1"))),
+        true,
+        reason="stable field id",
+    )
+    bad := send(rt, edit, .Toggle(true))
+    assert_equal(bad.is_empty(), true, reason="wrong type changes nothing")
+    assert_equal(rt.last_event_error, .Some("expected text edit"), reason="diagnostic")
+    deliver_packet(
+        rt,
+        Packet { generation: rt.generation + 1, handler: edit, payload: .Text("wrong mount") },
+    )
+    assert_equal(commands(rt).is_empty(), true, reason="stale generation")
+    report := send(rt, submit, .Submit(""))
+    assert_equal(report.contains(.Focus(node)), true, reason="focus first invalid control")
+    assert_equal(
+        report.contains(.SetProp(node, "described_by", .Text("1"))),
+        true,
+        reason="associate error",
+    )
+    changed := send(rt, edit, .Text("valid"))
+    assert_equal(
+        changed.contains(.SetProp(node, "invalid", .Flag(false))),
+        true,
+        reason="clears validation",
+    )
+    assert_equal(
+        changed.contains(.SetProp(node, "value", .Text("valid"))),
+        false,
+        reason="keeps caret",
+    )
+    pick := listener(initial, "select")._1
+    assert_equal(send(rt, pick, .Selected("unknown")).is_empty(), true, reason="stable keys only")
+    assert_equal(send(rt, pick, .Selected("two")).is_empty(), false, reason="selection updates")
+    _ := send(rt, listener(initial, "click")._1, .Click(""))
+    assert_equal(
+        send(rt, listener(initial, "click", 1)._1, .Click("")).is_empty(),
+        true,
+        reason="removed focus target",
+    )

@@ -88,7 +88,7 @@ Field decoration still requires `$ Owner + Target`. A retained submit handler ca
 
 **Acceptance.** Exercise the same form using a recorder, a real browser and the TUI. Verify accessible name and error association in the browser, keyboard-only selection and focus in both renderers, IME Enter, and disposal before a queued focus request.
 
-### 5. Make the toolchain reproducible
+### 6. Make the toolchain reproducible
 
 Record one tested hd-lang source revision for the CLI, stdlib, host TypeScript, glue generator and browser compiler. Record the Node, pnpm and Rust versions used to build it. Resolve the compiler binary and imports from that checkout in both local and CI entry points. Key cached artifacts by those inputs plus the host schema. The current playground reuses an existing compiler Wasm by file presence and the README names different test and browser revisions. If the playground still needs a patch, pin its exact commit and run the entire matrix on that commit before declaring support. [Current setup](../README.md#try-it) · [Playground build](../web/playground/build.mjs)
 

@@ -10,9 +10,11 @@ use dep.ui.{
     button,
     column,
     for_keyed,
-    input,
+    field,
+    field_input,
+    submit_fields,
     memo,
-    on,
+    on_submit,
     provide_theme,
     rgba,
     row,
@@ -77,7 +79,9 @@ fn list() -> void $ Ui + Theme:
         ],
     )
     next_id := signal::[usize](4)
-    draft := signal("")
+    draft := field(.Label("New todo"), "", fn(title: string) -> Result[void, string]:
+        if title.trim() == "": .Err("Enter a title") else: .Ok(())
+    )
     remaining := memo:
         let left = 0
         for todo in todos.items():
@@ -93,16 +97,15 @@ fn list() -> void $ Ui + Theme:
             "${remaining.get()} left"
         for_keyed(todos, fn(id, todo): todo_row(todos, id, todo))
         row(style=Style::empty().gap(8.0)):
-            input(draft, style=Style::empty().grow(1.0).padding_x(8.0).padding_y(4.0).radius(6.0).border(1.0, p.line)):
-                on(
-                    "enter",
-                    fn(title: string):
-                        add(todos, next_id, draft, title)
-                    ,
+            field_input(draft):
+                on_submit(fn(title: string):
+                    if submit_fields([draft.check()]):
+                        add(todos, next_id, draft.value, title)
                 )
             button(
                 fn():
-                    add(todos, next_id, draft, draft.peek())
+                    if submit_fields([draft.check()]):
+                        add(todos, next_id, draft.value, draft.value.peek())
                 ,
                 style=quiet().bg(p.accent).color(p.on_accent).border_color(p.accent),
             ):

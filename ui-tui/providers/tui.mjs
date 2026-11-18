@@ -1,3 +1,4 @@
+import { checkVersion, legacy, packet } from "../../ui/protocol/events.mjs";
 // The provider for `ui-tui`'s `surface.Surface`: a terminal under Node.
 //
 // It keeps the retained tree the commands describe, lays it out with the
@@ -121,7 +122,7 @@ export function wrapText(text, limit = null) {
 
 // ---- The retained tree ---------------------------------------------------
 
-const KINDS = new Set(["box", "text", "button", "input", "checkbox", "fragment"]);
+const KINDS = new Set(["box", "text", "button", "input", "checkbox", "fragment", "label", "select"]);
 
 function newNode(id, kind) {
   return { id, kind, parent: null, children: [], text: "", props: new Map(), listeners: new Map(), cursor: null };
@@ -298,11 +299,18 @@ function bracketed(node) {
   return node.kind === "button" && !(num(node, "border_width") > 0) && !paintOf(node, "background");
 }
 
+function selectedLabel(node) {
+  const choices = prop(node, "choices")?.items ?? [];
+  return choices.find((item) => item.key === word(node, "value"))?.label ?? "";
+}
+
 function labelOf(node) {
+  if (node.kind === "select") return `‹${selectedLabel(node)}›`;
   return bracketed(node) && isLabel(node) ? `[${contentOf(node)}]` : contentOf(node);
 }
 
 function leafContent(node, innerW) {
+  if (node.kind === "select") return { w: Math.max(3, textWidth(selectedLabel(node)) + 2), h: 1 };
   if (node.kind === "input") return { w: INPUT_COLS, h: 1 };
   if (node.kind === "checkbox") return { w: 3, h: 1 };
   const lines = wrapText(labelOf(node), innerW);
@@ -331,7 +339,7 @@ function minContentWidth(node) {
     content = INPUT_MIN_COLS;
   } else if (node.kind === "checkbox") {
     content = 3;
-  } else if (node.kind === "button") {
+  } else if (node.kind === "button" || node.kind === "select") {
     content = leafContent(node, null).w;
   } else {
     for (const part of node.text.split(/\s+/)) content = Math.max(content, textWidth(part));
@@ -1084,6 +1092,7 @@ export function processTerminal(env = process.env) {
 // start({ data, end, resize }), stop() }. `stop` is called at most once.
 export function createTuiSurface(terminal) {
   const tree = createTree();
+  let generation = 0;
   const events = [];
   const keys = [];
   let waiting = null;
@@ -1157,13 +1166,13 @@ export function createTuiSurface(terminal) {
     if (stopped) return;
     stopped = true;
     release();
-    events.push({ handler: 0, payload: "" });
+    events.push(packet(generation, 0, "click", ""));
   };
 
   // Reports `event` on `node` and its ancestors, as the DOM's events bubble.
   const fire = (node, event, payload) => {
     for (let at = node; at; at = at.parent) {
-      for (const handler of at.listeners.get(event) ?? []) events.push({ handler, payload });
+      for (const handler of at.listeners.get(event) ?? []) events.push(packet(generation, handler, event, payload));
     }
   };
 
@@ -1204,7 +1213,7 @@ export function createTuiSurface(terminal) {
     if (node.kind === "checkbox") {
       const next = !flag(node, "checked");
       node.props.set("checked", { tag: "Flag", fields: { value: next } });
-      fire(node, "change", String(next));
+      fire(node, "change", next);
     }
   };
 
@@ -1255,7 +1264,18 @@ export function createTuiSurface(terminal) {
     }
     if (!node) return;
     fire(node, "key", key);
-    if (inField) pressInField(node, key);
+    if (node.kind === "select" && ["ArrowUp", "ArrowDown", "Home", "End"].includes(key)) {
+      const items = prop(node, "choices")?.items ?? [];
+      if (items.length) {
+        const old = items.findIndex((item) => item.key === word(node, "value"));
+        const index = key === "Home" ? 0 : key === "End" ? items.length - 1
+          : Math.max(0, Math.min(items.length - 1, old + (key === "ArrowDown" ? 1 : -1)));
+        if (index !== old) {
+          node.props.set("value", { tag: "Text", fields: { value: items[index].key } });
+          fire(node, "select", items[index].key);
+        }
+      }
+    } else if (inField) pressInField(node, key);
     else if (key === " ") activate(node);
     else if (key === "Enter") fire(node, "click", "");
     render();
@@ -1329,10 +1349,29 @@ export function createTuiSurface(terminal) {
     },
     apply(commands, context) {
       start(context);
-      for (const command of commands) tree.apply(command);
-      render();
+      for (const command of commands) {
+        const f = command.fields;
+        if (command.tag === "Begin") {
+          checkVersion(f.version);
+          if (generation && generation !== f.generation) {
+            tree.apply({ tag: "Clear", fields: { node: 0 } });
+            keys.length = 0;
+            pendingBytes = "";
+            events.length = 0;
+            focus = null;
+            focusIndex = 0;
+            scroll = 0;
+          }
+          generation = f.generation;
+        } else if (command.tag === "Focus") {
+          const target = tree.nodes.get(f.node);
+          if (target && !flag(target, "disabled")) focus = target;
+        } else tree.apply(command);
+      }
+      if (commands.some((command) => command.tag !== "Begin")) render();
     },
-    next_event(context) {
+    next_event(context) { return legacy(this.next_event_v2(context)); },
+    next_event_v2(context) {
       start(context);
       pump();
       if (events.length) return events.shift();
