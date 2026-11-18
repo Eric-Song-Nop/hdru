@@ -12,6 +12,6 @@ addEventListener("message", ({ source, data }) => {
 });
 
 (async () => {
-  while (true) parent.postMessage({ event: await surface.next_event() }, "*");
+  while (true) parent.postMessage({ event: await surface.next_event_v2() }, "*");
 })();
 parent.postMessage({ ready: true }, "*");

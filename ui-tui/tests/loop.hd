@@ -1,22 +1,26 @@
-use dep.ui.{Command, Ui, UiEvent, button, reset_for_test, signal, text}
+use dep.ui.{Command, Packet, Ui, UiEvent, button, reset_for_test, signal, text}
 use pkg.{Surface, run_app}
 use std.testing.assert_equal
 
 # The loop itself is tested in `ui`; this is the adapter from the host trait.
 struct Host:
+    generation: usize
     log: List[Command]
     events: List[UiEvent]
 
 impl Surface for Host:
     fn apply!(&mut self, commands: List[Command]) -> void:
         for command in commands:
-            self.log.push(command)
+            match command:
+                .Begin(_, generation) => self.generation = generation
+                _ => self.log.push(command)
 
-    fn next_event!(&mut self) -> UiEvent:
-        if self.events.is_empty():
+    fn next_event_v2!(&mut self) -> Packet:
+        event := if self.events.is_empty():
             UiEvent { handler: 0, payload: "" }
         else:
             self.events.remove_at(0)
+        Packet { generation: self.generation, handler: event.handler, payload: .Click(event.payload) }
 
 fn app() -> void $ Ui:
     label := signal("before")
@@ -25,7 +29,7 @@ fn app() -> void $ Ui:
 
 it("run_app carries commands and events across the host trait, and stops on handler 0"):
     reset_for_test()
-    host := box(Host { log: [], events: [UiEvent { handler: 1, payload: "" }] })
+    host := box(Host { generation: 0, log: [], events: [UiEvent { handler: 1, payload: "" }] })
     $.with(Surface=host):
         run_app!(app)
     assert_equal(host.log.get(0), .Some(Command.Create(1, "button")), reason="mount reached the host")

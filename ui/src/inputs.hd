@@ -8,7 +8,8 @@ use dep.reactive.{Mutate, Owner, OwnerId, Reactive, Signal, Track}
 use pkg.keys.{Decorate, NodeId, Parent, Scope, Target, Ui}
 use pkg.runtime.emit
 use pkg.builders.{listen, prop, styled_node}
-use pkg.protocol.PropValue
+use pkg.protocol.{Payload, PropValue}
+use pkg.runtime.{drop_handler, register_listener, ui_cleanup, unexpected}
 use pkg.style.Style
 
 # What the control shows now: the last value sent to it or typed into it.
@@ -43,13 +44,14 @@ pub fn text_field(kind: string, value: Signal[string], style: Style, decorate: f
     node := styled_node(kind, style)
     emit(.SetProp(node, "value", .Text(initial)))
     shown := box(Shown { text: initial })
-    listen(
-        owner,
-        node,
-        "input",
-        fn(payload: string) -> void $ Mutate:
-            shown.text = payload
-            value.set_if_changed(payload)
+    typed_listener(
+        owner, node, "input",
+        fn(event: Payload) -> void $ Mutate:
+            match event:
+                .Text(s) =>
+                    shown.text = s
+                    value.set_if_changed(s)
+                _ => unexpected("text edit")
         ,
     )
     run := fn() -> bool $ Reactive:
@@ -75,13 +77,14 @@ pub fn checkbox(
     node := styled_node("checkbox", style)
     emit(.SetProp(node, "checked", .Flag(initial)))
     shown := box(Shown { text: "$initial" })
-    listen(
-        owner,
-        node,
-        "change",
-        fn(payload: string) -> void $ Mutate:
-            shown.text = payload
-            checked.set_if_changed(payload == "true")
+    typed_listener(
+        owner, node, "change",
+        fn(event: Payload) -> void $ Mutate:
+            match event:
+                .Toggle(b) =>
+                    shown.text = "$b"
+                    checked.set_if_changed(b)
+                _ => unexpected("toggle")
         ,
     )
     run := fn() -> bool $ Reactive:
@@ -121,10 +124,70 @@ pub fn take_keys[F < 'static & Fn() -> List[string] $ Track](keys: F) -> void $ 
 fn undecorated() -> void $ Decorate:
     pass
 
-fn decorate_node(owner: OwnerId, node: NodeId, decorate: fn() -> void $ Decorate) -> void $ Owner:
+pub fn decorate_node(owner: OwnerId, node: NodeId, decorate: fn() -> void $ Decorate) -> void $ Owner:
     $.with(Target=box(Scope { owner: owner, parent: node })):
         decorate()
 
 # Runs `run` as an effect of `owner`, now and after each change.
 fn follow_effect[F < 'static & FnMut() -> bool $ Reactive](owner: OwnerId, mut run: F) -> void:
     _ := ui_effect(owner, fn() -> bool $ Reactive: run())
+
+# Legacy recorders provide text. Version 2 surfaces provide the tagged value.
+fn decoded(event: string, value: string) -> Payload?:
+    match event:
+        "input" => .Some(.Text(value))
+        "change" =>
+            if value == "true": .Some(.Toggle(true)) else if value == "false": .Some(.Toggle(false)) else: .None
+        "select" => .Some(.Selected(value))
+        "key" => .Some(.Key(value))
+        "enter" => .Some(.Submit(value))
+        _ => .None
+
+fn typed_listener[F < 'static & FnMut(Payload) -> void $ Mutate](
+    owner: OwnerId, node: NodeId, event: string, mut handler: F,
+) -> void:
+    id := register_listener(
+        fn(s: string) -> void $ Mutate:
+            match decoded(event, s):
+                .Some(value) => handler(value)
+                .None => unexpected(event)
+        ,
+        fn(value: Payload) -> void $ Mutate: handler(value),
+    )
+    emit(.Listen(node, event, id))
+    ui_cleanup(owner, fn() -> void: drop_handler(id))
+
+pub fn on_text_edit[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> void $ Owner + Target:
+    typed_listener($.use(Owner).owner(), $.use(Target).target(), "input", fn(value: Payload) -> void $ Mutate:
+        match value:
+            .Text(s) => handler(s)
+            _ => unexpected("text edit")
+    )
+
+pub fn on_toggle[F < 'static & FnMut(bool) -> void $ Mutate](mut handler: F) -> void $ Owner + Target:
+    typed_listener($.use(Owner).owner(), $.use(Target).target(), "change", fn(value: Payload) -> void $ Mutate:
+        match value:
+            .Toggle(b) => handler(b)
+            _ => unexpected("toggle")
+    )
+
+pub fn on_select[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> void $ Owner + Target:
+    typed_listener($.use(Owner).owner(), $.use(Target).target(), "select", fn(value: Payload) -> void $ Mutate:
+        match value:
+            .Selected(key) => handler(key)
+            _ => unexpected("selection")
+    )
+
+pub fn on_key[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> void $ Owner + Target:
+    typed_listener($.use(Owner).owner(), $.use(Target).target(), "key", fn(value: Payload) -> void $ Mutate:
+        match value:
+            .Key(key) => handler(key)
+            _ => unexpected("key chord")
+    )
+
+pub fn on_submit[F < 'static & FnMut(string) -> void $ Mutate](mut handler: F) -> void $ Owner + Target:
+    typed_listener($.use(Owner).owner(), $.use(Target).target(), "enter", fn(value: Payload) -> void $ Mutate:
+        match value:
+            .Submit(s) => handler(s)
+            _ => unexpected("submit")
+    )

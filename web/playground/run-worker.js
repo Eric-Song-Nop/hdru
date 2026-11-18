@@ -10,7 +10,7 @@ const surface = {
   apply(commands) {
     self.postMessage({ type: "apply", commands });
   },
-  next_event() {
+  next_event_v2() {
     if (events.length) return events.shift();
     return new Promise((resolve) => {
       waiting = resolve;

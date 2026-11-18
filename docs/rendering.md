@@ -26,6 +26,8 @@ adding a property touches `Style` and the renderers that want it, never the host
 ```hd
 @derive(Eq, Debug)
 pub enum Command:
+    Begin(version: usize, generation: usize)
+    Focus(node: NodeId)
     Create(node: NodeId, kind: string)
     Append(parent: NodeId, child: NodeId)
     MoveBefore(parent: NodeId, child: NodeId, before: NodeId?)
@@ -42,18 +44,21 @@ pub enum PropValue:
     Flag(value: bool)
     Paint(color: Color)
     Extent(size: Size)
+    Choices(items: List[Choice])
     Unset
 
 pub struct Color:  # r, g, b, a: u8; built by rgb and rgba
 pub enum Size:     # Px(value: f32), Pct(value: f32), Auto, Fill
 ```
 
-A host answers with `UiEvent { handler, payload }`. Handler 0 ends the loop.
+A surface starts with `Begin(2, generation)`. Its host method `next_event_v2!` returns `Packet { generation, handler, payload }`. Handler 0 ends input for that generation. A replacement mount ignores earlier packets. Text edits, toggles, stable selection keys, key chords, submit, click and custom values have distinct tags. A typed listener checks its tag before running a batched callback under `$ Mutate`. The mount records a mismatch in `last_event_error`. The string listener `on` and hd recorders still accept text.
+
+Use `field(.Label("Title"), initial, validate)` with `field_input`, `field_checkbox` or `field_select`. `FieldName.Accessible` supplies an accessible name when the surrounding layout supplies context. A select takes ordered `Choice { key, label }` values. Call `submit_fields([title.check(), ...])` from a submit handler to reveal validation errors and focus the first invalid enabled field. DOM links labels and descriptions using surface-specific IDs. Terminal users can Tab to a select and change its option with arrows, Home or End.
 
 - **Fields are named because they cross the ABI by name.** The generated glue delivers
   `{ tag: "Px", fields: { value: 8 } }`, and an optional is a value or `null`.
 - **`PropValue` is typed** so that a renderer in any language never parses `"8px"` or
-  `"#336699"`. `Color` and `Size` are the only structured values every renderer needs.
+  `"#336699"`.
 - **Namespaces.** A property key, node kind or event without a prefix is portable. One with
   a renderer prefix belongs to that renderer and is ignored by the others: `dom:class`,
   `dom:attr:aria-label`, `dom:textarea`, `dom:focus`. This replaces a raw command. `ui` emits

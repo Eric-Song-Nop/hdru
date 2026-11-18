@@ -1,4 +1,4 @@
-## The renderer protocol (`rendering.md`, layer 2): eight operations on
+## The renderer protocol (`rendering.md`, layer 2): a stream of operations on
 ## opaque node ids, and the events a renderer reports back. The protocol
 ## carries no vocabulary: node kinds, property keys and event names are
 ## data, defined by `style.hd` and the builders, so adding a property never
@@ -8,6 +8,8 @@ use pkg.keys.{HandlerId, NodeId}
 
 @derive(Eq, Debug)
 pub enum Command:
+    Begin(version: usize, generation: usize)
+    Focus(node: NodeId)
     ## Makes a node of `kind`: "box", "text", "button", "input", "checkbox"
     ## or "fragment". A renderer treats an unknown kind as "box".
     Create(node: NodeId, kind: string)
@@ -25,7 +27,7 @@ pub enum Command:
     ## vocabulary; a renderer ignores a key it does not know, and a key
     ## with another renderer's prefix (`dom:class`) is that renderer's.
     SetProp(node: NodeId, key: string, value: PropValue)
-    ## Reports `event` on `node` as `UiEvent { handler, payload }`.
+    ## Reports tagged payloads with the generation and handler.
     Listen(node: NodeId, event: string, handler: HandlerId)
 
 ## A property value. Typed because the protocol crosses an ABI, and a
@@ -37,6 +39,7 @@ pub enum PropValue:
     Flag(value: bool)
     Paint(color: Color)
     Extent(size: Size)
+    Choices(items: List[Choice])
     Unset
 
 ## An sRGB color with alpha, each channel 0 to 255.
@@ -70,3 +73,35 @@ pub fn rgb(r: u8, g: u8, b: u8) -> Color:
 ## A color from its three channels and an alpha.
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color:
     Color { r: r, g: g, b: b, a: a }
+
+@derive(Eq, Debug)
+pub struct Choice:
+    pub key: string
+    pub label: string
+
+@derive(Eq, Debug)
+pub enum Payload:
+    Click(value: string)
+    Text(value: string)
+    Toggle(value: bool)
+    Selected(value: string)
+    Key(value: string)
+    Submit(value: string)
+    Custom(value: string)
+
+impl Payload:
+    pub fn as_text(self) -> string:
+        match self:
+            .Click(s) => s
+            .Text(s) => s
+            .Toggle(v) => "$v"
+            .Selected(s) => s
+            .Key(s) => s
+            .Submit(s) => s
+            .Custom(s) => s
+
+@derive(Eq, Debug)
+pub struct Packet:
+    pub generation: usize
+    pub handler: HandlerId
+    pub payload: Payload

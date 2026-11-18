@@ -784,3 +784,23 @@ test("a node takes keys from the renderer, can give them back, and never Ctrl-C"
   await eventsAfter(surface, terminal, "\t");
   assert.equal(surface.focused().id, 3, "given back: Tab moves the focus");
 });
+
+test("labeled selects report option keys and honor focus after a field disappears", async () => {
+  const { terminal, surface } = surfaceOf([
+    command("Begin", { version: 2, generation: 31 }),
+    create(1, "label"), append(0, 1), create(2, "text"), append(1, 2), setText(2, "Category"),
+    create(3, "input"), append(0, 3), listen(3, "input", 1),
+    create(4, "select"), append(0, 4), listen(4, "select", 2),
+    set(4, "choices", { tag: "Choices", fields: { items: [{ key: "a", label: "First" }, { key: "b", label: "Second" }] } }),
+    set(4, "value", word("a")),
+  ]);
+  terminal.type("\t\x1b[B");
+  assert.deepEqual(await surface.next_event_v2(), {
+    generation: 31, handler: 2, payload: { tag: "Selected", fields: { value: "b" } },
+  });
+  assert.match(plainRows(surface.frame()).join("\n"), /Category[\s\S]*‹Second›/);
+  surface.apply([command("Focus", { node: 3 })]);
+  assert.equal(surface.focused().id, 3);
+  surface.apply([command("Remove", { node: 3 }), command("Focus", { node: 3 })]);
+  assert.equal(surface.focused().id, 4);
+});

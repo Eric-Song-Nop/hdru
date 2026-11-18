@@ -1,5 +1,5 @@
 ## `run_app!` on this renderer's host: adapts `Surface` to `ui`'s `Renderer`.
-use dep.ui.{Command, Renderer, Ui, UiEvent, run_on}
+use dep.ui.{Command, Delivery, Renderer, Ui, UiEvent, run_on}
 use pkg.surface.Surface
 
 struct Bridge:
@@ -10,7 +10,14 @@ impl Renderer for Bridge:
         self.surface.apply!(commands)
 
     fn next_event!(&mut self) -> UiEvent:
-        self.surface.next_event!()
+        packet := self.surface.next_event_v2!()
+        UiEvent { handler: packet.handler, payload: packet.payload.as_text() }
+
+    fn begin!(&mut self, generation: usize) -> void:
+        self.surface.apply!([Command.Begin(2, generation)])
+
+    fn receive!(&mut self) -> Delivery:
+        .Typed(self.surface.next_event_v2!())
 
 ## Runs `root` on the host until it sends handler 0 (`ui`'s `run_on!`).
 pub fn run_app![$ R](root: fn() -> void $ Ui + R) -> void $ Surface + R:

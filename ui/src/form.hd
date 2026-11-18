@@ -1,0 +1,164 @@
+use std.function.Fn
+use dep.reactive.{Mutate, Owner, ReadSignal, Signal, Track, memo, signal}
+use pkg.builders.{column, container, prop, show, styled_node, text}
+use pkg.inputs.{checkbox, decorate_node, input, on_select}
+use pkg.keys.{Decorate, NodeId, Target, Ui}
+use pkg.protocol.{Choice, PropValue}
+use pkg.runtime.{Runtime, emit, in_runtime, runtime, ui_cleanup}
+use pkg.style.Style
+
+pub enum FieldName:
+    Label(value: string)
+    Accessible(value: string)
+
+struct Binding:
+    identity: string
+    rt: *mut Runtime
+    node: NodeId?
+
+pub struct Field[T < 'static]:
+    pub value: Signal[T]
+    pub disabled: Signal[bool]
+    pub error: ReadSignal[string?]
+    touched: Signal[bool]
+    name: FieldName
+    binding: *mut Binding
+
+pub fn field[T < 'static, V < 'static & Fn(T) -> Result[void, string]](
+    name: FieldName,
+    initial: T,
+    validate: V,
+) -> Field[T] $ Ui:
+    label := match name:
+        .Label(value) => value
+        .Accessible(value) => value
+    if label.trim() == "":
+        panic("ui: a field needs a name")
+    value := signal(initial)
+    rt := runtime()
+    identity := "${rt.next_field}"
+    rt.next_field += 1
+    let error: ReadSignal[string?] = memo:
+        match validate(value.get()):
+            .Ok(_) => .None
+            .Err(why) => .Some(why)
+    Field {
+        value: value,
+        disabled: signal(false),
+        error: error,
+        touched: signal(false),
+        name: name,
+        binding: box(Binding { identity: identity, node: .None, rt: rt }),
+    }
+
+pub struct FieldCheck:
+    check: fn() -> bool $ Mutate
+    focus: fn() -> void $ Mutate
+
+impl[T < 'static] Field[T]:
+    pub fn focus(self) -> void $ Mutate:
+        if !self.disabled.peek():
+            match self.binding.node:
+                .Some(id) =>
+                    in_runtime(self.binding.rt, fn() -> void: emit(.Focus(id)))
+                .None => pass
+
+    pub fn check(self) -> FieldCheck:
+        FieldCheck {
+            check: fn() -> bool $ Mutate:
+                self.touched.set_if_changed(true)
+                self.disabled.peek() || self.error.peek().is_none()
+            , focus: fn() -> void $ Mutate: self.focus()
+        }
+
+    fn displayed(self) -> string? $ Track:
+        if self.touched.get() && !self.disabled.get(): self.error.get() else: .None
+
+## Mark every invalid field and focus the first one in form order.
+pub fn submit_fields(fields: List[FieldCheck]) -> bool $ Mutate:
+    let first: FieldCheck? = .None
+    for item in fields:
+        valid := (item.check)()
+        if !valid && first.is_none():
+            first = .Some(item)
+    match first:
+        .Some(item) =>
+            (item.focus)()
+            false
+        .None => true
+
+fn bind_field[T < 'static](f: Field[T]) -> void $ Decorate:
+    id := $.use(Target).target()
+    if f.binding.node.is_some():
+        panic("ui: a field already has a mounted control")
+    f.binding.node = .Some(id)
+    ui_cleanup($.use(Owner).owner(), fn() -> void: f.binding.node = .None)
+    prop("field_id", fn(): .Text(f.binding.identity))
+    prop("disabled", fn(): .Flag(f.disabled.get()))
+    prop("invalid", fn(): .Flag(f.displayed().is_some()))
+    prop("described_by", fn():
+        if f.displayed().is_some(): .Text(f.binding.identity) else: .Unset
+    )
+    match f.name:
+        .Accessible(label) =>
+            prop("accessible_name", fn(): .Text(label))
+        .Label(_) => pass
+
+fn frame[T < 'static](f: Field[T], control: fn() -> void $ Ui) -> void $ Ui:
+    column:
+        match f.name:
+            .Label(name) =>
+                container("label", Style::empty(), fn() -> void $ Ui + Target:
+                    prop("label_for", fn(): .Text(f.binding.identity))
+                    text(fn(): name)
+                )
+            .Accessible(_) => pass
+        control()
+        show(fn(): f.displayed().is_some()):
+            column:
+                prop("description_id", fn(): .Text(f.binding.identity))
+                text(fn(): f.displayed().unwrap_or(""))
+
+fn undecorated() -> void $ Decorate:
+    pass
+
+pub fn field_input(f: Field[string], decorate: fn() -> void $ Decorate = undecorated) -> void $ Ui:
+    frame(f, fn() -> void $ Ui:
+        input(f.value, decorate=fn() -> void $ Decorate:
+            bind_field(f)
+            decorate()
+        )
+    )
+
+pub fn field_checkbox(f: Field[bool], decorate: fn() -> void $ Decorate = undecorated) -> void $ Ui:
+    frame(f, fn() -> void $ Ui:
+        checkbox(f.value, decorate=fn() -> void $ Decorate:
+            bind_field(f)
+            decorate()
+        )
+    )
+
+pub fn field_select(
+    f: Field[string],
+    choices: List[Choice],
+    decorate: fn() -> void $ Decorate = undecorated,
+) -> void $ Ui:
+    let mut keys: Map[string, bool] = {}
+    for item in choices:
+        if keys.contains_key(item.key):
+            panic("ui: duplicate select option key")
+        keys[item.key] = true
+    frame(f, fn() -> void $ Ui:
+        owner := $.use(Owner).owner()
+        node := styled_node("select", Style::empty())
+        decorate_node(owner, node, fn() -> void $ Decorate:
+            bind_field(f)
+            prop("choices", fn(): .Choices(choices))
+            prop("value", fn(): .Text(f.value.get()))
+            on_select(fn(key: string):
+                if keys.contains_key(key):
+                    f.value.set_if_changed(key)
+            )
+            decorate()
+        )
+    )
