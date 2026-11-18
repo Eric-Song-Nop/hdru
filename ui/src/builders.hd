@@ -1,10 +1,11 @@
+use pkg.runtime.{ui_effect, ui_cleanup}
 ## Node builders. Each reads `$.use(Owner)` and `$.use(Parent)` into locals
 ## and never captures them; a container runs its block under a fresh
 ## `Parent` and `Target` that name the new node. Each takes `style: Style =
 ## Style::empty()` and emits one `SetProp` per set field after `Create`,
 ## then attaches the node.
 use std.function.{Fn, FnMut}
-use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, Reactive, Track, cleanup_on, dispose, new_owner, run_effect}
+use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, Reactive, Track, dispose, new_owner}
 use pkg.keys.{NodeId, Parent, Scope, Target, Ui}
 use pkg.protocol.PropValue
 use pkg.runtime.{after_apply, create_node, drop_handler, emit, register_handler}
@@ -99,7 +100,7 @@ pub fn style_live[F < 'static & Fn() -> Style $ Track](compute: F) -> void $ Own
             emit(.SetProp(node, key, value))
         last.style = next
         false
-    _ := run_effect(owner, run)
+    _ := ui_effect(owner, run)
 
 ## Text. The block runs now and again whenever a signal it reads changes, and
 ## equal text emits nothing, so text that reads no signal is only written once.
@@ -126,7 +127,7 @@ fn follow[T < 'static & Eq, F < 'static & Fn() -> T $ Track, W < 'static & Fn(T)
             last.value = .Some(next)
             write(next)
         false
-    _ := run_effect(owner, run)
+    _ := ui_effect(owner, run)
 
 ## A button: a container that sends `click` to `on_click`. The handler may write
 ## signals but not read them tracked; use `peek` or `update`. Its block runs
@@ -153,7 +154,7 @@ pub fn listen[F < 'static & FnMut(string) -> void $ Mutate](
 ) -> void:
     id := register_handler(fn(payload: string) -> void $ Mutate: handler(payload))
     emit(.Listen(node, event, id))
-    cleanup_on(owner, fn() -> void: drop_handler(id))
+    ui_cleanup(owner, fn() -> void: drop_handler(id))
 
 ## Mounts `branch` while `when` is true and disposes it when it turns
 ## false. The branch keeps its place: it renders into a "fragment" node,
@@ -184,7 +185,7 @@ pub fn show[C < 'static & Fn() -> bool $ Track, F < 'static & Fn() -> void $ Ui]
                         branch()
                     shown.child = .Some(child)
         false
-    _ := run_effect(owner, run)
+    _ := ui_effect(owner, run)
 
 ## A property of the block's node by key, following the signals `compute` reads:
 ## one `SetProp` per change and none for an equal value. How a renderer package
@@ -205,7 +206,7 @@ struct Alive:
 pub fn on_ready[F < 'static & FnMut(NodeId) -> void $ Mutate](mut callback: F) -> void $ Owner + Target:
     node := $.use(Target).target()
     alive := box(Alive { yes: true })
-    cleanup_on($.use(Owner).owner(), fn() -> void: alive.yes = false)
+    ui_cleanup($.use(Owner).owner(), fn() -> void: alive.yes = false)
     after_apply(
         fn() -> void $ Mutate:
             if alive.yes:

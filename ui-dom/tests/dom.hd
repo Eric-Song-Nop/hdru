@@ -1,3 +1,4 @@
+use dep.ui.{graph_signal, graph}
 use dep.ui.{Command, PropValue, Style, Ui, UiEvent, column, dispatch, input, mount, reset_for_test, signal, take_commands, text, view}
 use pkg.{DomStyle, attr, dom_on, link, textarea}
 use std.testing.assert_equal
@@ -11,7 +12,7 @@ it("dom_class lowers to the dom:class key"):
 
 it("attr lowers to dom:attr keys on the block's node, following what it reads"):
     reset_for_test()
-    level := signal("low")
+    level := graph_signal(graph(), "low")
     _ := mount(
         fn() -> void $ Ui:
             column:
@@ -28,7 +29,7 @@ it("attr lowers to dom:attr keys on the block's node, following what it reads"):
 
 it("textarea is a field of the dom:textarea kind, bound as input is"):
     reset_for_test()
-    draft := signal("a")
+    draft := graph_signal(graph(), "a")
     _ := mount(fn() -> void $ Ui: textarea(draft))
     commands := take_commands()
     assert_equal(commands.get(0), .Some(Command.Create(1, "dom:textarea")), reason="its kind")
@@ -39,8 +40,8 @@ it("textarea is a field of the dom:textarea kind, bound as input is"):
 
 it("dom_on listens under the dom: prefix, and input under a portable name"):
     reset_for_test()
-    seen := signal("")
-    draft := signal("")
+    seen := graph_signal(graph(), "")
+    draft := graph_signal(graph(), "")
     _ := mount(
         fn() -> void $ Ui:
             input(draft):
@@ -71,7 +72,7 @@ it("link is a container of the dom:a kind, and its block can label it"):
 
 it("textarea's block addresses the field"):
     reset_for_test()
-    draft := signal("")
+    draft := graph_signal(graph(), "")
     _ := mount(
         fn() -> void $ Ui:
             textarea(draft):

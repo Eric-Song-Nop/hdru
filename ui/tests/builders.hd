@@ -1,3 +1,4 @@
+use pkg.{graph, graph_signal}
 use pkg.{
     Mutate,
     NodeId,
@@ -165,7 +166,7 @@ it("a button's block can hold anything, and address the button"):
 
 it("a field's block addresses the field"):
     reset_for_test()
-    draft := signal("")
+    draft := graph_signal(graph(), "")
     _ := mount:
         input(draft):
             on("key", fn(key: string) -> void $ Mutate: draft.set(key))

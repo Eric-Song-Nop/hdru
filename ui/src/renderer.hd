@@ -3,11 +3,12 @@
 ## and run resource loads on a pool of worker tasks. None of it depends on a
 ## host, so a renderer package only adapts its `@host` trait to `Renderer`.
 ## `Recorder` implements it in hd, so the whole loop runs in a test.
-use std.task.{Receiver, Sender, channel, join, map_join}
-use dep.reactive.OwnerId
+use std.task.{join, map_join, race}
+use std.ops.Disposable
+use dep.reactive.new_graph
 use pkg.keys.Ui
 use pkg.protocol.{Command, UiEvent}
-use pkg.runtime.{dispatch, mount, run_job, run_ready, take_commands, take_new_jobs}
+use pkg.runtime.{Runtime, commands, deliver, finish, in_runtime, is_closed, mount_in, unmount, pop_job, run_ready}
 
 ## What a renderer does. `apply!` consumes one batch of commands and
 ## `next_event!` waits for the next user event; a handler of 0 ends the loop.
@@ -18,73 +19,91 @@ pub trait Renderer:
 # At most this many loads are in flight at once.
 WORKERS := 4
 
-# Jobs wait in a plain list and the channel only wakes workers. If the channel
-# held the jobs, its capacity would be a trap: a worker sends the jobs its own
-# load made, so with the channel full every worker could wait on `send!` at
-# once and the program would die of `suspension-deadlock`. Here a token is sent
-# only for a worker counted idle, so the tokens never outnumber the capacity
-# and `send!` never waits.
-struct Pool:
-    jobs: List[usize]
-    ## Workers waiting for a token, less the tokens already sent to them.
-    idle: usize
-    closed: bool
-    wake: Sender[void]
-    woken: Receiver[void]
+# One writer per surface. Effects from a shared graph wake the destination.
+fn send!(rt: *mut Runtime) -> void $ Renderer:
+    if rt.writing:
+        return
+    rt.writing = true
+    let mut batch = commands(rt)
+    while !batch.is_empty():
+        $.use(Renderer).apply!(batch)
+        in_runtime(rt, run_ready)
+        batch = commands(rt)
+    rt.writing = false
 
-# Sends the queued commands, then hands over the jobs registered since.
-fn send!(pool: *mut Pool) -> void $ Renderer:
-    let mut commands = take_commands()
-    while !commands.is_empty():
-        $.use(Renderer).apply!(commands)
-        run_ready()
-        commands = take_commands()
-    for id in take_new_jobs():
-        pool.jobs.push(id)
-        if !pool.closed && pool.idle > 0:
-            pool.idle -= 1
-            pool.wake.send!(())
+fn writer!(rt: *mut Runtime) -> void $ Renderer:
+    while !rt.drained:
+        wait := rt.output.receiver()
+        send!(rt)
+        if !rt.drained:
+            _ := wait.recv!()
+    send!(rt)
 
-fn event_loop!(pool: *mut Pool) -> void $ Renderer:
-    while true:
+fn event_loop!(rt: *mut Runtime) -> void $ Renderer:
+    while !is_closed(rt):
         event := $.use(Renderer).next_event!()
         if event.handler == 0:
-            break
-        dispatch(event)
-        send!(pool)
-    pool.closed = true
-    pool.wake.close()
+            return
+        deliver(rt, event)
+        send!(rt)
 
-# Works until the loop has ended and no job is left, so a load in flight at
-# shutdown still lands, and so do any loads it leads to.
-fn worker!(pool: *mut Pool) -> void $ Renderer:
+fn stopped!(rt: *mut Runtime) -> void:
+    if !is_closed(rt):
+        wait := rt.stop.receiver()
+        _ := wait.recv!()
+
+fn events!(rt: *mut Runtime) -> void $ Renderer:
+    race!(event_loop(rt), stopped(rt))
+    rt.ended = true
+    rt.work.notify()
+
+fn worker!(rt: *mut Runtime) -> void $ Renderer:
     while true:
-        if !pool.jobs.is_empty():
-            run_job!(pool.jobs.remove_at(0))
-            send!(pool)
-        else if pool.closed:
-            break
-        else:
-            pool.idle += 1
-            _ := pool.woken.recv!()
+        wait := rt.work.receiver()
+        match pop_job(rt):
+            .Some(job) =>
+                let mut task = job.task
+                task!()
+                send!(rt)
+            .None =>
+                if rt.ended || is_closed(rt):
+                    return
+                _ := wait.recv!()
 
-## Mounts `root`, sends its commands, then runs the event loop beside a
-## pool of workers until the host sends handler 0: each event is
-## dispatched and its changes sent; each resource load runs on a worker
-## and lands its result when the loader completes. Returns when the loop
-## has ended and every worker has stopped.
-pub fn run_on![$ R](root: fn() -> void $ Ui + R) -> void $ Renderer + R:
-    _ := mount(root)
-    let (wake, woken) = channel::[void](capacity=WORKERS)
-    pool := box(Pool { jobs: [], idle: 0, closed: false, wake: wake, woken: woken })
-    send!(pool)
+fn drive!(rt: *mut Runtime) -> void $ Renderer:
     let mut slots: List[usize] = []
     for slot in 0..WORKERS:
         slots.push(slot)
-    _ := join!(
-        event_loop(pool),
-        map_join(slots, WORKERS, fn!(slot: usize) -> void $ Renderer: worker!(pool)),
-    )
+    _ := join!(events(rt), map_join(slots, WORKERS, fn!(_slot: usize) -> void $ Renderer: worker!(rt)))
+    rt.drained = true
+    rt.output.notify()
+
+struct Mounted:
+    rt: *mut Runtime
+
+impl Disposable for Mounted:
+    fn dispose(&mut self) -> void:
+        finish(self.rt)
+        self.rt.running = false
+        self.rt.stop.notify()
+
+pub fn run_mount!(rt: *mut Runtime) -> void $ Renderer:
+    if rt.running || is_closed(rt):
+        return
+    rt.running = true
+    using guard = Mounted { rt: rt }
+    send!(rt)
+    _ := join!(drive(rt), writer(rt))
+
+pub fn close_mount!(rt: *mut Runtime) -> void:
+    unmount(rt)
+    while rt.running:
+        wait := rt.stop.receiver()
+        _ := wait.recv!()
+
+pub fn run_on![$R](root: fn() -> void $ Ui + R) -> void $ Renderer + R:
+    rt := mount_in(new_graph(), root)
+    run_mount!(rt)
 
 ## A `Renderer` for tests and scripted runs: `apply!` logs every command, and
 ## `next_event!` pops a scripted event, or handler 0 (stop) when the script is

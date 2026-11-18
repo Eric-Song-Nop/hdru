@@ -42,6 +42,7 @@ pub struct OwnerRecord:
     pub context: Map[string, *mut dyn Inspectable]
 
 pub struct Graph:
+    identity: usize
     pub sources: Map[SourceId, Source]
     pub computations: Map[ComputationId, Computation]
     pub owners: Map[OwnerId, OwnerRecord]
@@ -50,20 +51,34 @@ pub struct Graph:
     pub flushing: bool
     pub batch_depth: usize
 
-GRAPH := box(
-    Graph {
-        sources: {},
-        computations: {},
-        owners: {},
-        next_id: 1,
-        effects: [],
-        flushing: false,
-        batch_depth: 0,
-    },
-)
+NEXT_GRAPH := box::[usize](1)
+
+pub fn new_graph() -> *mut Graph:
+    identity := *NEXT_GRAPH
+    *NEXT_GRAPH += 1
+    box(Graph { identity: identity, sources: {}, computations: {}, owners: {}, next_id: 1, effects: [], flushing: false, batch_depth: 0 })
+
+struct Selection:
+    current: *mut Graph
+
+ACTIVE := box(Selection { current: new_graph() })
 
 pub fn graph() -> *mut Graph:
-    GRAPH
+    ACTIVE.current
+
+pub fn graph_id() -> usize:
+    graph().identity
+
+## Only synchronous callbacks enter this scope. Drivers re-enter for each delivery.
+pub fn with_graph[T, $R](realm: *mut Graph, body: fn() -> T $ R) -> T $ R:
+    previous := ACTIVE.current
+    ACTIVE.current = realm
+    result := body()
+    ACTIVE.current = previous
+    result
+
+pub fn source_count() -> usize:
+    graph().sources.len()
 
 fn rank(state: State) -> usize:
     match state:
@@ -76,6 +91,9 @@ fn fresh_id() -> usize:
     id := g.next_id
     g.next_id += 1
     id
+
+pub fn new_signal_id() -> SourceId:
+    fresh_id()
 
 pub fn new_source() -> SourceId:
     id := fresh_id()
@@ -110,6 +128,8 @@ pub fn new_computation(computation: Computation) -> ComputationId:
 ## A signal was written: bump its version and mark its observers.
 pub fn mark_write(source: SourceId) -> void:
     g := graph()
+    if !g.sources.contains_key(source):
+        return
     g.sources[source].version += 1
     observers := g.sources[source].observers
     for observer in observers:
@@ -174,6 +194,9 @@ fn unobserve(source: SourceId, id: ComputationId) -> void:
         .Some(index) => _ := g.sources[source].observers.remove_at(index)
         .None => pass
 
+    if g.sources[source].observers.is_empty() && g.sources[source].producer.is_none():
+        _ := g.sources.remove(source)
+
 ## Records `read` as the sources `id` depends on, with their current
 ## versions, and marks `id` clean.
 pub fn subscribe(id: ComputationId, read: List[SourceId]) -> void:
@@ -182,9 +205,10 @@ pub fn subscribe(id: ComputationId, read: List[SourceId]) -> void:
         return
     let mut deps: List[(SourceId, usize)] = []
     for source in read:
-        if g.sources.contains_key(source):
-            g.sources[source].observers.push(id)
-            deps.push((source, g.sources[source].version))
+        if !g.sources.contains_key(source):
+            g.sources[source] = Source { version: 0, observers: [], producer: .None }
+        g.sources[source].observers.push(id)
+        deps.push((source, g.sources[source].version))
     g.computations[id].deps = deps
     g.computations[id].state = .Clean
 
