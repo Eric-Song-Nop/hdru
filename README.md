@@ -225,6 +225,8 @@ line of `reactive` or `ui`. In a terminal, Tab and Shift-Tab move the focus, Ent
 press focuses and clicks, typing edits a focused field, Space toggles a checkbox, and `q` (outside a field)
 or Ctrl-C quits.
 
+The [record editor](examples/editor/src/lib.hd) has 1,000 searchable records, a delayed refresh and a detail form. Choose **Fail next save** to exercise rollback, close the editor, then reopen it and retry. The mount owns each record's save queue, so closing a detail form leaves pending work alive.
+
 ## Limits
 
 - **Handlers take a few more lines than in React.** A handler runs after its component has returned, so a
@@ -238,7 +240,7 @@ or Ctrl-C quits.
   ):
       text(fn(): "save")
   ```
-- **Untested at scale.** The examples are about 270 lines, and performance has not been measured.
+- The record editor exercises 1,000 local records with 5 or 12 rows mounted. Its browser and terminal tests log the time from save input to the optimistic row update.
 - The portable controls cover basic fields. See the [framework designs](docs/framework-designs.md) for ongoing work.
 - **A native renderer is blocked.** Host providers run only on JavaScript for now
   ([hd-lang#1191](https://github.com/HerringtonDarkholme/hd-lang/issues/1191) has an accepted design, not built yet), so
@@ -268,12 +270,12 @@ cd examples/todos && hd run todos-tui
 | every package's tests, from the root | `hd test` |
 | one package | `hd test -p reactive` (or `ui`, `ui-dom`, `ui-tui`) |
 | provider tests and the layering rules | `node --test ui-dom/providers/dom.test.mjs ui-tui/providers/tui.test.mjs layering.test.mjs` |
-| the examples in a terminal | `hd run counter-tui`, `hd run todos-tui`, `hd run fetcher-tui`, each in its `examples/` folder |
+| the examples in a terminal | `hd run counter-tui`, `hd run todos-tui`, `hd run fetcher-tui`, `hd run editor-tui`, each in its `examples/` folder |
 | a terminal app driven by keys, printing plain frames | `cd examples/counter && printf '\t\rq' \| hd run counter-tui` |
 | an example under Node, DOM provider, scripted clicks | `cd examples/counter && UI_CLICKS=2,2,1 hd run counter --engine node` |
 | the todos example, typing "milk" and pressing Enter | `cd examples/todos && UI_CLICKS=1,8=milk,10 hd run todos --engine node` |
 | the playground | `node web/playground/build.mjs`, then serve `web/playground/dist/` (`docs/playground.md`) |
-| the browser pages | `./web/build.sh`, then serve `web/` (for example `python3 -m http.server -d web 8765`) and open `index.html`, `todos.html` or `fetcher.html` |
+| the browser pages | `./web/build.sh`, then serve `web/` (for example `python3 -m http.server -d web 8765`) and open `index.html`, `todos.html`, `fetcher.html` or `editor.html` |
 
 ## Where things are
 
@@ -284,7 +286,7 @@ cd examples/todos && hd run todos-tui
 | `ui-dom/` | the browser renderer: the `Surface` host trait, `run_app!`, the JavaScript provider, and what only the DOM has (`attr`, `dom_class`, `dom_on`, `link`, `textarea`) |
 | `ui-tui/` | the terminal renderer: the `Surface` host trait, `run_app!`, the JavaScript provider |
 | `playground/` | an hdru playground written in hdru, DOM-only |
-| `examples/` | `counter`, `todos` and `fetcher`, each with its app in `src/lib.hd` and an entry per renderer |
+| `examples/` | `counter`, `todos`, `fetcher` and `editor`, each with its app in `src/lib.hd` and an entry per renderer |
 | `web/` | browser pages for the examples and the playground |
 
 An app depends on `ui` and a renderer, and consents to the renderer's host trait in its manifest, such as

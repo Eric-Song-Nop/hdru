@@ -25,7 +25,7 @@ async function main() {
       program: app,
       args: [],
       module,
-      grants: { [root.selectors[0]]: true, Console: true },
+      grants: { [root.selectors[0]]: true, Console: true, Clock: true },
       createPackageRuntime,
       packageBindings: (runtime) => generated.bind(runtime, providers),
     },

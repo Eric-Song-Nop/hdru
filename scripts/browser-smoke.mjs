@@ -16,6 +16,12 @@ try {
   await page.locator("#app button").filter({ hasText: "+" }).click();
   await page.getByText("Count: 1", { exact: true }).waitFor();
   await page.goto(`http://127.0.0.1:${port}/todos.html`);
+  const firstToggle = page.getByRole("button", { name: "toggle", exact: true }).first();
+  await firstToggle.focus();
+  const focusedId = await firstToggle.getAttribute("data-hd");
+  await page.getByRole("button", { name: "reverse", exact: true }).evaluate((el) => el.click());
+  await page.waitForFunction((id) => document.querySelectorAll("button")[0]?.dataset.hd !== id, focusedId);
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.hd), focusedId);
   const draft = page.getByRole("textbox", { name: "New todo" });
   await page.getByRole("button", { name: "add", exact: true }).click();
   await page.getByText("Enter a title", { exact: true }).waitFor();
@@ -27,8 +33,58 @@ try {
   await draft.press("Enter");
   await page.getByText("[ ] Check composition", { exact: true }).waitFor();
   assert.equal(await draft.inputValue(), "");
+  await page.goto(`http://127.0.0.1:${port}/editor.html`);
+  const btn = (name) => page.getByRole("button", { name, exact: true });
+  const count = (n) => page.getByText(`${n} ${n === 1 ? "record" : "records"}`, { exact: true });
+  await count(1000).waitFor();
+  assert.equal(await page.getByRole("button", { name: /^Record [0-9]+$/ }).count(), 12);
+  const size = page.getByRole("combobox", { name: "Rows per page" });
+  await size.focus();
+  await size.press("5");
+  await size.press("Tab");
+  await btn("Record 6").waitFor({ state: "detached" });
+  await btn("Next").click();
+  await btn("Record 6").waitFor();
+  const search = page.getByLabel("Search records");
+  await search.fill("record 999");
+  await count(1).waitFor();
+  await btn("Refresh").click();
+  await page.getByText("Refreshing records", { exact: true }).waitFor();
+  await btn("Record 999").click();
+  const title = page.getByLabel("Title", { exact: true });
+  await title.fill("Record 999 edited");
+  await page.getByLabel("Fail next save").check();
+  const saveButton = btn("Save");
+  await saveButton.evaluate((button) => {
+    button.addEventListener("click", () => {
+      performance.mark("save-input");
+      const observer = new MutationObserver(() => {
+        if (![...document.querySelectorAll("button")].some((el) => el.textContent === "Record 999 edited")) return;
+        performance.measure("editor-optimistic-update", "save-input");
+        observer.disconnect();
+      });
+      observer.observe(document.getElementById("app"), { subtree: true, childList: true, characterData: true });
+    }, { once: true, capture: true });
+  });
+  await btn("Save").click();
+  await btn("Record 999 edited").waitFor();
+  const elapsed = await page.evaluate(() => performance.getEntriesByName("editor-optimistic-update")[0].duration);
+  console.log(`DOM save click to optimistic row update: ${elapsed.toFixed(2)} ms`);
+  await btn("Close editor").click();
+  await btn("Record 999").click();
+  await page.getByText("Save failed", { exact: true }).waitFor();
+  await btn("Retry save").click();
+  await btn("Record 999 edited").waitFor();
+  await btn("Close editor").click();
+  await btn("Record 999 edited").click();
+  assert.equal(await title.inputValue(), "Record 999 edited");
+
   await page.goto(`http://127.0.0.1:${port}/playground/dist/`);
   await page.locator("textarea").waitFor();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  const preview = page.frameLocator('iframe[title="preview"]');
+  await preview.getByRole("button", { name: "+", exact: true }).click({ timeout: 60000 });
+  await preview.getByText("Count: 1", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
 } finally {
   await browser?.close();

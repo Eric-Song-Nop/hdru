@@ -8,7 +8,8 @@
 // fixture rather than as a test of something else.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import { readFileSync } from "node:fs";
 import {
   ansiRow,
@@ -803,4 +804,64 @@ test("labeled selects report option keys and honor focus after a field disappear
   assert.equal(surface.focused().id, 3);
   surface.apply([command("Remove", { node: 3 }), command("Focus", { node: 3 })]);
   assert.equal(surface.focused().id, 4);
+});
+
+test("the compiled editor searches, changes page size and saves with only keys", { skip: hd.error ? "no hd on PATH" : false }, async () => {
+  const child = spawn("hd", ["run", "editor-tui"], {
+    cwd: new URL("../../examples/editor/", import.meta.url),
+    signal: AbortSignal.timeout(30000),
+  });
+  const exit = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  // A failed frame assertion may leave the program waiting for input.
+  exit.catch(() => {});
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  let errors = "";
+  child.stderr.on("data", (chunk) => { errors += chunk; });
+  let lastFrame = "";
+  async function until(matches) {
+    let frame = "";
+    for (;;) {
+      const { value, done } = await lines.next();
+      if (done) assert.fail(`editor ended before the expected frame\n${errors}\n${lastFrame}`);
+      if (value === "-- end of frame") {
+        lastFrame = frame;
+        if (matches(frame)) return;
+        frame = "";
+      } else frame += `${value}\n`;
+    }
+  }
+  try {
+    await until((frame) => frame.includes("1000 records") && frame.includes("[Record 12]"));
+    child.stdin.write("999");
+    await until((frame) => frame.includes("1 record\n") && frame.includes("[Record 999]"));
+    child.stdin.write("\t\x1b[A");
+    await until((frame) => frame.includes("‹5 rows›"));
+    child.stdin.write("\t\t\t\t\r");
+    await until((frame) => frame.includes("Editing record 999"));
+    child.stdin.write("\x1b[Z".repeat(4) + " updated");
+    await until((frame) => frame.includes("Record 999 updated") && !frame.includes("[Record 999 updated]"));
+    const beforeSave = performance.now();
+    child.stdin.write("\r");
+    await until((frame) => frame.includes("[Record 999 updated]"));
+    console.log(`TUI save key to optimistic frame: ${(performance.now() - beforeSave).toFixed(2)} ms`);
+    child.stdin.write("\t\t\t\r");
+    await until((frame) => frame.includes("[Record 999 updated]") && !frame.includes("Editing record"));
+    child.stdin.end("q");
+    assert.equal(await exit, 0, errors);
+  } finally {
+    child.kill();
+  }
+});
+
+test("an explicitly cancelled host read leaves the next event for a new reader", async () => {
+  const { surface, terminal } = surfaceOf(counterMount);
+  const controller = new AbortController();
+  const reading = surface.next_event_v2({ signal: controller.signal });
+  controller.abort();
+  assert.equal((await reading).handler, 0);
+  terminal.type("\r");
+  assert.equal((await surface.next_event_v2()).handler, 1);
 });
