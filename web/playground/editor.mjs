@@ -5,7 +5,7 @@
 // only set colors and decoration, which keeps both layers' glyphs the same
 // width. The shell decides when Tab indents; applying the edit is here, because it
 // needs the selection and the browser's undo history.
-import { classify } from "../../../hd-lang/website/src/highlight.ts";
+import { classify } from "../../.toolchain/hd-lang/website/src/highlight.ts";
 
 const INDENT = 4;
 

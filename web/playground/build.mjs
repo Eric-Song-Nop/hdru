@@ -1,15 +1,15 @@
 // Builds the playground into web/playground/dist/ (docs/playground.md). Needs the
 // hd binary, cargo, pnpm and the patched hd-lang checkout beside this repository.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RUN, createCompiler } from "../../playground/providers/compiler.mjs";
-import { logoSvg } from "../../../hd-lang/website/src/logo.ts";
+import { logoSvg } from "../../.toolchain/hd-lang/website/src/logo.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const hdLang = resolve(root, "../hd-lang");
+const hdLang = resolve(root, ".toolchain/hd-lang");
 const gen = join(here, "gen");
 const dist = join(here, "dist");
 mkdirSync(gen, { recursive: true });
@@ -57,13 +57,13 @@ writeFileSync(join(gen, "sources.json"), JSON.stringify({ packages }));
 writeFileSync(join(gen, "examples.json"), JSON.stringify({ examples }));
 
 // The shell.
-sh("hd", ["build"], join(root, "playground"));
+sh(join(hdLang, "target/release/hd"), ["build"], join(root, "playground"));
 copyFileSync(join(root, "playground/build/debug/playground.wasm"), join(dist, "playground.wasm"));
 
 // The compiler.
 const compilerWasm = join(hdLang, "website/playground/assets/hd_web.wasm");
-if (!existsSync(compilerWasm) || process.env.REBUILD_COMPILER) {
-  sh("node", ["scripts/build-web-compiler.js"], hdLang);
+{
+  sh("node", ["scripts/build-web-compiler.ts"], hdLang);
 }
 copyFileSync(compilerWasm, join(dist, "hd_web.wasm"));
 
@@ -82,10 +82,10 @@ for (const [name, source] of Object.entries(examples)) {
 }
 const samplePath = join(gen, "sample.wasm");
 writeFileSync(samplePath, sample);
-sh("cargo", ["run", "-q", "-p", "hd_web", "--example", "host_glue", "--", samplePath, join(gen, "run.host.mjs")], hdLang);
+sh("cargo", ["run", "--locked", "--release", "-q", "-p", "hd_web", "--example", "host_glue", "--", samplePath, join(gen, "run.host.mjs")], hdLang);
 
 // The pages.
-const esbuild = ["dlx", "esbuild@0.28.2", "--bundle", "--platform=browser", "--target=es2022", "--log-level=warning"];
+const esbuild = ["exec", "esbuild", "--bundle", "--platform=browser", "--target=es2022", "--log-level=warning"];
 sh("pnpm", [...esbuild, "--format=esm", `--outdir=${dist}`, join(here, "main.js"), join(here, "compiler-worker.js"), join(here, "run-worker.js")], here);
 sh("pnpm", [...esbuild, "--format=iife", `--outfile=${join(dist, "preview.js")}`, join(here, "preview.js")], here);
 copyFileSync(join(here, "index.html"), join(dist, "index.html"));

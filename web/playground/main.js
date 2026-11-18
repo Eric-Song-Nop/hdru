@@ -1,6 +1,6 @@
 // Runs the playground's shell, itself an hdru program, on the main thread.
-import { createWebHost } from "../../../hd-lang/host/web.ts";
-import { createPackageRuntime } from "../../../hd-lang/host/package-providers.ts";
+import { createWebHost } from "../../.toolchain/hd-lang/host/web.ts";
+import { createPackageRuntime } from "../../.toolchain/hd-lang/host/package-providers.ts";
 import * as generated from "../../playground/build/debug/playground.host.mjs";
 import { createDomSurface } from "../../ui-dom/providers/dom.mjs";
 import { createWorkbench } from "../../playground/providers/workbench.mjs";

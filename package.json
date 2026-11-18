@@ -1,0 +1,7 @@
+{
+  "name": "hdru",
+  "private": true,
+  "packageManager": "pnpm@10.8.0",
+  "engines": { "node": "24.19.0" },
+  "devDependencies": { "esbuild": "0.28.2", "playwright": "1.65.1" }
+}

@@ -1,0 +1,19 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: ./scripts/setup-toolchain.sh
+      - run: echo "$PWD/.toolchain/hd-lang/target/release" >> "$GITHUB_PATH"
+      - run: hd test
+      - run: node --test layering.test.mjs ui-*/providers/*.test.mjs web/playground/editor.test.mjs
+      - run: ./web/build.sh && node web/playground/build.mjs
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: node scripts/browser-smoke.mjs
