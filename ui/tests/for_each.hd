@@ -1,4 +1,4 @@
-use pkg.{effect, keyed, for_window}
+use pkg.{effect, keyed, for_window, on_cleanup}
 use pkg.{
     Command,
     Signal,
@@ -180,3 +180,43 @@ it("editing one cell in a paged model leaves the order computation asleep"):
     assert_equal(rows.runs, 12, reason="initial page")
     _ := click(2)
     assert_equal(rows.runs, 22, reason="last page clamps at the collection end")
+
+it("the planner evaluates each new key once on unchanged, reversed and empty input"):
+    reset_for_test()
+    keys := box(Counter { runs: 0 })
+    created := box(Counter { runs: 0 })
+    disposed := box(Counter { runs: 0 })
+    _ := mount:
+        ids := signal([1, 2, 3, 4])
+        button(fn(): ids.set(ids.peek())):
+            text(fn(): "same")
+        button(fn(): ids.update(fn(values): values.reversed())):
+            text(fn(): "reverse")
+        button(fn(): ids.set([])):
+            text(fn(): "clear")
+        for_each(ids.read(),
+            fn(id: usize):
+                keys.runs += 1
+                id
+            ,
+            fn(id):
+                created.runs += 1
+                on_cleanup(fn(): disposed.runs += 1)
+                text(fn(): "${id.get()}")
+        )
+    _ := take_commands()
+    assert_equal(keys.runs, 4, reason="mount")
+    assert_equal(click(1).len(), 0, reason="unchanged emits nothing")
+    assert_equal(keys.runs, 8, reason="one evaluation per item per pass")
+    reverse := click(2)
+    assert_equal(reverse.len(), 3, reason="minimal moves")
+    for command in reverse:
+        match command:
+            .MoveBefore(_, _, _) => pass
+            _ => panic("reverse rebuilt a row")
+    assert_equal(keys.runs, 12, reason="reverse visited each item once")
+    assert_equal(created.runs, 4, reason="all rows reused")
+    assert_equal(disposed.runs, 0, reason="kept all owners")
+    assert_equal(click(3).len(), 4, reason="one remove per row")
+    assert_equal(disposed.runs, 4, reason="all row owners disposed")
+    assert_equal(keys.runs, 12, reason="empty input")

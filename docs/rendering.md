@@ -197,8 +197,8 @@ inside `style_live` follows the signal, so dark mode is one write.
 
 A package with its own `@host trait Surface` (one trait maps to one provider file), a `run_app!`
 that adapts it to `ui`'s `Renderer` and calls `run_on!`, and a provider that keeps a node table,
-implements the eight commands, and follows the kind and key tables as far as it can. A provider is a plain object with `apply`
-and `next_event`. Suspending methods may return a value or a Promise, and each method also receives a context whose `instanceSignal` aborts when the program ends.
+implements the surface protocol, and follows the kind and key tables as far as it can. A provider is a plain object with `apply`
+and `next_event_v2`. Suspending methods may return a value or a Promise, and each method also receives a context whose `instanceSignal` aborts when the program ends.
 
 ## The DOM provider
 

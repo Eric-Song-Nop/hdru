@@ -44,7 +44,7 @@ pub struct Signal[T < 'static]:
 ##     assert_equal(count.get(), +2, reason="the written value")
 ## ```
 pub fn signal[T < 'static](initial: T) -> Signal[T] $ Owner:
-    graph_signal(graph(), initial)
+    graph_signal($.use(Owner).realm(), initial)
 
 pub fn graph_signal[T < 'static](realm: *mut Graph, initial: T) -> Signal[T]:
     with_graph(realm, fn() -> Signal[T]:
@@ -93,6 +93,7 @@ impl[T < 'static & Eq] Signal[T]:
     ## equal write marks no observer and runs no effect. `set` stays
     ## unconditional because `Signal[T]` does not require `Eq`.
     pub fn set_if_changed(self, value: T) -> void $ Mutate:
+        check_graph(self.slot.identity)
         if value != self.slot.value:
             self.set(value)
 

@@ -1,4 +1,4 @@
-## The dependency graph: one program-wide object holding every source,
+## A dependency graph holds its subscribed sources,
 ## computation and owner. Nothing here calls user code while holding a
 ## reference into the graph; every walk copies its list out first.
 use std.inspect.Inspectable
@@ -45,7 +45,7 @@ pub struct OwnerRecord:
     pub context: Map[string, *mut dyn Inspectable]
 
 pub struct Graph:
-    identity: usize
+    pub identity: usize
     pub sources: Map[SourceId, Source]
     pub computations: Map[ComputationId, Computation]
     pub owners: Map[OwnerId, OwnerRecord]

@@ -1,4 +1,4 @@
-import { checkVersion, legacy, packet } from "../../ui/protocol/events.mjs";
+import { checkVersion, inputReader, legacy, packet } from "../../ui/protocol/events.mjs";
 // The provider for `ui-dom`'s `surface.Surface`.
 //
 // In a browser it drives the real DOM under the element with id "app".
@@ -184,12 +184,10 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
   let generation = 0;
   const queue = [];
   const seen = new Set();
-  let waiting = null;
+  const reader = inputReader();
   const push = (event) => {
-    if (waiting) {
-      const resolve = waiting;
-      waiting = null;
-      resolve(event);
+    if (reader.waiting) {
+      reader.deliver(event);
     } else {
       queue.push(event);
     }
@@ -278,9 +276,20 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
       case "Append":
         node(f.parent).appendChild(node(f.child));
         break;
-      case "MoveBefore":
-        node(f.parent).insertBefore(node(f.child), f.before === null ? null : node(f.before));
+      case "MoveBefore": {
+        const parent = node(f.parent);
+        const child = node(f.child);
+        const before = f.before === null ? null : node(f.before);
+        if (parent.moveBefore && parent.isConnected && child.isConnected) {
+          parent.moveBefore(child, before);
+        } else {
+          const active = document.activeElement;
+          const restore = active && child.contains(active);
+          parent.insertBefore(child, before);
+          if (restore && document.activeElement !== active) active.focus({ preventScroll: true });
+        }
         break;
+      }
       case "SetText":
         node(f.node).textContent = f.text;
         break;
@@ -341,11 +350,9 @@ export function createDomSurface(root, nodes = new Map(), log = (line) => consol
       }
     },
     next_event() { return legacy(this.next_event_v2()); },
-    next_event_v2() {
+    next_event_v2(context) {
       if (queue.length) return queue.shift();
-      return new Promise((resolve) => {
-        waiting = resolve;
-      });
+      return reader.wait(context, generation);
     },
   };
 }

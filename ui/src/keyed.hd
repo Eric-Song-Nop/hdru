@@ -3,7 +3,7 @@
 use std.cmp.min
 use std.function.Fn
 use std.hash.Hash
-use dep.reactive.{Graph, Mutate, Owner, ReadSignal, Signal, Track, graph, graph_signal, memo, signal}
+use dep.reactive.{Graph, Mutate, Owner, ReadSignal, Signal, Track, graph_signal, memo, signal}
 use pkg.collections.for_each
 use pkg.keys.Ui
 
@@ -28,7 +28,7 @@ pub fn keyed[K < 'static & Eq & Hash, T < 'static](initial: List[(K, T)]) -> Key
         entries.by_key[key] = ticket
         entries.records[ticket] = (key, item)
         tickets.push(ticket)
-    Keyed { entries: entries, order: signal(tickets), realm: graph() }
+    Keyed { entries: entries, order: signal(tickets), realm: $.use(Owner).realm() }
 
 impl[K < 'static & Eq & Hash, T < 'static] Keyed[K, T]:
     ## Allocate an entity field, including from an event handler.

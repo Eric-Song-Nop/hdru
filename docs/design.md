@@ -239,7 +239,7 @@ makes a result for an old key, or for a disposed owner, a no-op. A queued job no
 taken is simply removed, which costs nothing for a cold suspension
 (`req.discard.cold`). Each worker races the job against a private channel. Disposal or replacement closes the sender, the losing load cleans up, and the worker continues. A still-queued replacement reuses the existing position.
 
-`query` exposes an initial loading state, refresh with the last value, and failure with an optional previous value. `query_when` pauses until its key exists. `async_panel` combines explicit statuses and keeps content mounted during refresh. `actions` serializes saves per entity, overlays pending edits on the confirmed value, and preserves the mutation ID when retrying a failure.
+`query` exposes an initial loading state, refresh with the last value, and failure with an optional previous value. `query_when` pauses until its key exists. `cancel()` stops an attempt and restores the prior value on refresh. Group different error types with `status().map_error(convert)` before combining them with `and`. `async_panel` combines explicit statuses and keeps content mounted during refresh. `actions` serializes saves per entity, overlays pending edits on the confirmed value, and preserves the mutation ID when retrying a failure.
 
 **Policies.** `resource_with(key, load, policy)` wraps each load in a `std.task` layer
 such as `timeout(ms(5000))` or `retry(...)`. It is a separate function, not a default

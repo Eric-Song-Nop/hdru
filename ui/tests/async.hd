@@ -1,5 +1,5 @@
 use pkg.{Ui, UiEvent, effect, actions, async_panel, button, dispatch, mount, query, query_when, reset_for_test, signal, text}
-use pkg.runtime.{run_job, take_new_jobs}
+use pkg.runtime.{mount_stats, runtime, run_job, take_new_jobs}
 use std.ops.Disposable
 use std.task.{Receiver, channel, join, map_join}
 use std.testing.assert_equal
@@ -22,7 +22,9 @@ impl Disposable for Cleanup:
 fn invalidate!(rx: Receiver[void]) -> void:
     for _i in 0..4:
         _ := rx.recv!()
+    assert_equal(mount_stats(runtime()).busy, 4, reason="all workers occupied")
     click(1)
+    assert_equal(mount_stats(runtime()).queued, 4, reason="one replacement per key")
 
 it("four obsolete in-flight loads clean up and their replacements run"):
     reset_for_test()
@@ -49,6 +51,7 @@ it("four obsolete in-flight loads clean up and their replacements run"):
     assert_equal(landed.len(), 0, reason="obsolete bodies stopped")
     drain!()
     assert_equal(landed.len(), 4, reason="all replacements ran")
+    assert_equal(mount_stats(runtime()).busy, 0, reason="all slots released")
 
 it("same-key refresh keeps content and a new key starts empty"):
     reset_for_test()
@@ -105,3 +108,29 @@ it("failing the first save only rolls back its own optimistic edit"):
     drain!()
     assert_equal(views.last(), .Some(+17), reason="retry confirmed")
     assert_equal(*requests, [1, 2, 1], reason="same mutation id on retry")
+
+it("a query can cancel an initial load or restore the previous value during a refresh"):
+    reset_for_test()
+    log := box::[List[string]]([])
+    _ := mount:
+        request := query(fn(): 1, fn!(id: usize) -> Result[usize, string]: .Ok(id))
+        button(fn(): request.cancel()):
+            text(fn(): "cancel")
+        button(fn(): request.refresh()):
+            text(fn(): "refresh")
+        effect(fn():
+            match request.snapshot.get():
+                .Idle => log.push("idle")
+                .Loading => log.push("loading")
+                .Refreshing(_) => log.push("refreshing")
+                .Ready(_) => log.push("ready")
+                .Failed(_, _) => log.push("failed")
+        )
+    click(1)
+    assert_equal(take_new_jobs().len(), 0, reason="queued first load removed")
+    click(2)
+    drain!()
+    click(2)
+    click(1)
+    click(1)
+    assert_equal(*log, ["loading", "idle", "loading", "ready", "refreshing", "ready"], reason="cancel transitions")

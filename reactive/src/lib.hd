@@ -20,7 +20,7 @@ pub use pkg.owner.{current_owner, on_cleanup, owned, root}
 pub use pkg.context.{Given, Provided, given, provide, use_context, use_given}
 
 # The low-level computation API: what a renderer or a new primitive builds
-# on. `graph()` itself is not exported.
+# on. `graph()` selects the graph for the current synchronous callback.
 pub use pkg.graph.{
     Computation,
     Graph,

@@ -1,4 +1,4 @@
-import { checkVersion, legacy, packet } from "../../ui/protocol/events.mjs";
+import { checkVersion, inputReader, legacy, packet } from "../../ui/protocol/events.mjs";
 // The provider for `ui-tui`'s `surface.Surface`: a terminal under Node.
 //
 // It keeps the retained tree the commands describe, lays it out with the
@@ -1095,7 +1095,7 @@ export function createTuiSurface(terminal) {
   let generation = 0;
   const events = [];
   const keys = [];
-  let waiting = null;
+  const reader = inputReader();
   let started = false;
   let stopped = false;
   let released = false;
@@ -1289,12 +1289,10 @@ export function createTuiSurface(terminal) {
   };
 
   const deliver = () => {
-    if (!waiting) return;
+    if (!reader.waiting) return;
     pump();
     if (events.length === 0) return;
-    const resolve = waiting;
-    waiting = null;
-    resolve(events.shift());
+    reader.deliver(events.shift());
   };
 
   const read = (bytes) => {
@@ -1375,9 +1373,7 @@ export function createTuiSurface(terminal) {
       start(context);
       pump();
       if (events.length) return events.shift();
-      return new Promise((resolve) => {
-        waiting = resolve;
-      });
+      return reader.wait(context, generation);
     },
   };
 }
