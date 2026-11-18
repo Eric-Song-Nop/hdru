@@ -1,0 +1,33 @@
+use pkg.{Command, Ui, UiEvent, button, commands, deliver, graph_signal, mount_in, new_graph, text, unmount, with_graph}
+use dep.reactive.source_count
+use std.testing.assert_equal
+
+it("two mounts route shared updates to their own outboxes and dispose independently"):
+    realm := new_graph()
+    count := graph_signal(realm, +0)
+    view := fn() -> void $ Ui:
+        button(fn(): count.update(fn(n): n + 1)):
+            text(fn(): "${count.get()}")
+    a := mount_in(realm, view)
+    b := mount_in(realm, view)
+    _ := commands(a)
+    _ := commands(b)
+    deliver(a, UiEvent { handler: 1, payload: "" })
+    assert_equal(commands(a), [Command.SetText(2, "1")], reason="surface A")
+    assert_equal(commands(b), [Command.SetText(2, "1")], reason="surface B")
+    unmount(a)
+    unmount(a)
+    deliver(a, UiEvent { handler: 1, payload: "" })
+    assert_equal(commands(a), [Command.Clear(0)], reason="one teardown")
+    deliver(b, UiEvent { handler: 1, payload: "" })
+    assert_equal(commands(b), [Command.SetText(2, "2")], reason="B still works")
+    unmount(b)
+    assert_equal(with_graph(realm, source_count), 0, reason="last subscription released")
+    assert_equal(count.peek(), +2, reason="retained model")
+    c := mount_in(realm, view)
+    assert_equal(commands(c).contains(.SetText(2, "2")), true, reason="resubscribed")
+    unmount(c)
+
+it("a tracked signal rejects another graph", expect_panic="explicit-panic"):
+    count := graph_signal(new_graph(), +0)
+    _ := mount_in(new_graph(), fn() -> void $ Ui: text(fn(): "${count.get()}"))

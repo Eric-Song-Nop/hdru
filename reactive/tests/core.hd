@@ -1,4 +1,4 @@
-use pkg.{Reactive, Track, batch, dispose, effect, memo, on_cleanup, root, signal, sync, untrack}
+use pkg.{graph_signal, Reactive, Track, batch, dispose, effect, memo, on_cleanup, root, signal, sync, untrack}
 use pkg.graph.{graph, run_effect}
 use pkg.owner.current_owner
 use std.testing.assert_equal
@@ -140,7 +140,7 @@ it("a sync effect may write another signal"):
 
 it("disposing an owner stops its computations and runs cleanups"):
     let mut log: List[string] = []
-    count := signal(+1)
+    count := graph_signal(graph(), +1)
     runs := box(Counter { runs: 0 })
     owner := root:
         doubled := memo:

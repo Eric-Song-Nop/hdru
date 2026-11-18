@@ -1,9 +1,10 @@
+use pkg.runtime.{ui_effect}
 ## Input controls: each keeps a signal and a host control in step. The
 ## user's edit arrives as an event payload and is written into the signal;
 ## a write from elsewhere is sent to the control as a `SetProp`, except the
 ## value the control already shows, so a keystroke is never echoed back.
 use std.function.{Fn, FnMut}
-use dep.reactive.{Mutate, Owner, OwnerId, Reactive, Signal, Track, run_effect}
+use dep.reactive.{Mutate, Owner, OwnerId, Reactive, Signal, Track}
 use pkg.keys.{Decorate, NodeId, Parent, Scope, Target, Ui}
 use pkg.runtime.emit
 use pkg.builders.{listen, prop, styled_node}
@@ -126,4 +127,4 @@ fn decorate_node(owner: OwnerId, node: NodeId, decorate: fn() -> void $ Decorate
 
 # Runs `run` as an effect of `owner`, now and after each change.
 fn follow_effect[F < 'static & FnMut() -> bool $ Reactive](owner: OwnerId, mut run: F) -> void:
-    _ := run_effect(owner, fn() -> bool $ Reactive: run())
+    _ := ui_effect(owner, fn() -> bool $ Reactive: run())

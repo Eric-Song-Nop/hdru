@@ -1,9 +1,10 @@
+use pkg.runtime.{ui_effect}
 ## Keyed collections: `for_each` renders one row per item and keeps a row
 ## alive across updates as long as its key is present.
 use std.function.Fn
 use std.format.{Debug, debug}
 use std.hash.Hash
-use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, ReadSignal, Reactive, Signal, Track, dispose, new_owner, run_effect, signal}
+use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, ReadSignal, Reactive, Signal, Track, dispose, new_owner, signal}
 use pkg.keys.{NodeId, Parent, Scope, Ui}
 use pkg.runtime.{create_node, emit}
 
@@ -58,10 +59,11 @@ pub fn for_each[
                 state.rows[k].item.set_if_changed(item)
             else:
                 child := new_owner(.Some(owner))
-                item_signal := signal(item)
                 node := create_node("fragment")
                 emit(.Append(fragment, node))
                 scope := box(Scope { owner: child, parent: node })
+                item_signal := $.with(Owner=scope):
+                    signal(item)
                 $.with(Owner=scope, Parent=scope, Track=box(NoTrack {})):
                     render(item_signal.read())
                 state.rows[k] = Row { owner: child, node: node, item: item_signal }
@@ -84,4 +86,4 @@ pub fn for_each[
             index += 1
         state.order = current
         false
-    _ := run_effect(owner, run)
+    _ := ui_effect(owner, run)

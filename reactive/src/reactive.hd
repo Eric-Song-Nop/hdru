@@ -6,6 +6,10 @@ use pkg.graph.{
     ensure_fresh,
     flush,
     graph,
+    Graph,
+    graph_id,
+    new_signal_id,
+    with_graph,
     mark_write,
     new_computation,
     new_source,
@@ -15,6 +19,8 @@ use pkg.graph.{
 }
 
 pub struct Slot[T < 'static]:
+    pub realm: *mut Graph
+    pub identity: usize
     pub value: T
     pub id: SourceId
 
@@ -37,12 +43,23 @@ pub struct Signal[T < 'static]:
 ##     count.set(+2)
 ##     assert_equal(count.get(), +2, reason="the written value")
 ## ```
-pub fn signal[T < 'static](initial: T) -> Signal[T]:
-    Signal { slot: box(Slot { value: initial, id: new_source() }) }
+pub fn signal[T < 'static](initial: T) -> Signal[T] $ Owner:
+    graph_signal(graph(), initial)
+
+pub fn graph_signal[T < 'static](realm: *mut Graph, initial: T) -> Signal[T]:
+    with_graph(realm, fn() -> Signal[T]:
+        Signal { slot: box(Slot { realm: realm, identity: graph_id(), value: initial, id: new_signal_id() }) }
+    )
+
+fn check_graph(identity: usize) -> void:
+    if identity != graph_id():
+        panic("reactive: signal belongs to a different graph")
+
 
 impl[T < 'static] Signal[T]:
     ## Reads the value and records the dependency.
     pub fn get(self) -> T $ Track:
+        check_graph(self.slot.identity)
         $.use(Track).depend(self.slot.id)
         self.slot.value
 
@@ -53,9 +70,10 @@ impl[T < 'static] Signal[T]:
     ## Writes the value, marks every observer, and flushes effects unless a
     ## batch is open.
     pub fn set(self, value: T) -> void $ Mutate:
+        check_graph(self.slot.identity)
+        $.use(Mutate).invalidate(self.slot.id)
         self.slot.value = value
         mark_write(self.slot.id)
-        $.use(Mutate).invalidate(self.slot.id)
         if graph().batch_depth == 0:
             flush()
 
@@ -82,14 +100,17 @@ impl[T < 'static] ReadSignal[T]:
     ## Reads the value and records the dependency. A memo is brought up to
     ## date first.
     pub fn get(self) -> T $ Track:
+        check_graph(self.slot.identity)
         $.use(Track).depend(self.slot.id)
         self.refresh()
         self.slot.value
 
     ## Reads the value without recording a dependency.
     pub fn peek(self) -> T:
-        self.refresh()
-        self.slot.value
+        with_graph(self.slot.realm, fn() -> T:
+            self.refresh()
+            self.slot.value
+        )
 
     fn refresh(self) -> void:
         match self.computation:
@@ -116,7 +137,7 @@ pub fn memo[T < 'static & Eq, F < 'static & Fn() -> T $ Track](compute: F) -> Re
     collector := box(Collector { deps: [] })
     first := $.with(Track=collector):
         compute()
-    slot := box(Slot { value: first, id: source })
+    slot := box(Slot { realm: graph(), identity: graph_id(), value: first, id: source })
     run := fn() -> bool $ Reactive:
         next := compute()
         if next == slot.value:

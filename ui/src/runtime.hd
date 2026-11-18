@@ -4,7 +4,8 @@
 ## is synchronous except `run_job!`; a renderer package such as `ui-dom`
 ## supplies the loop that moves commands, events and jobs across a host.
 use std.function.FnMut
-use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
+use std.task.{Receiver, Sender, channel}
+use dep.reactive.{Graph, Reactive, ComputationId, graph, with_graph, run_effect, cleanup_on, dispose, Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
 use pkg.keys.{HandlerId, NodeId, Parent, Scope, Ui}
 use pkg.protocol.{Command, UiEvent}
 
@@ -13,7 +14,17 @@ use pkg.protocol.{Command, UiEvent}
 pub struct Job:
     pub task: Suspend[void]
 
-struct Runtime:
+pub struct Runtime:
+    realm: *mut Graph
+    root: OwnerId?
+    closed: bool
+    pub writing: bool
+    pub ended: bool
+    pub drained: bool
+    pub running: bool
+    pub work: Pulse
+    pub output: Pulse
+    pub stop: Pulse
     out: List[Command]
     handlers: Map[HandlerId, fn(string) -> void $ Mutate]
     next_node: usize
@@ -28,26 +39,61 @@ struct Runtime:
     ## The sources the last dispatched handler wrote.
     last_writes: List[SourceId]
 
-RUNTIME := box(
-    Runtime {
-        out: [],
-        handlers: {},
-        next_node: 1,
-        next_handler: 1,
-        jobs: {},
-        unposted: [],
-        next_job: 1,
-        ready: [],
-        last_writes: [],
-    },
-)
+## Binary notification. Observers copy the receiver before checking state.
+pub struct Pulse:
+    pair: (Sender[void], Receiver[void])?
 
-fn runtime() -> *mut Runtime:
-    RUNTIME
+impl Pulse:
+    pub fn receiver(&mut self) -> Receiver[void]:
+        if self.pair.is_none():
+            self.pair = .Some(channel::[void](capacity=1))
+        self.pair.expect("pulse initialized")._1
+
+    pub fn notify(&mut self) -> void:
+        match self.pair:
+            .Some(pair) => pair._0.close()
+            .None => pass
+        self.pair = .None
+
+pub fn new_runtime(realm: *mut Graph) -> *mut Runtime:
+    box(Runtime {
+        realm: realm, root: .None, closed: false, writing: false, drained: false, ended: false, running: false,
+        work: Pulse { pair: .None },
+        output: Pulse { pair: .None },
+        stop: Pulse { pair: .None },
+        out: [], handlers: {}, next_node: 1, next_handler: 1, jobs: {}, unposted: [], next_job: 1, ready: [], last_writes: [],
+    })
+
+struct Selection:
+    current: *mut Runtime
+
+ACTIVE := box(Selection { current: new_runtime(graph()) })
+
+pub fn runtime() -> *mut Runtime:
+    ACTIVE.current
+
+pub fn in_runtime[T, $R](rt: *mut Runtime, body: fn() -> T $ R) -> T $ R:
+    previous := ACTIVE.current
+    ACTIVE.current = rt
+    result := with_graph(rt.realm, body)
+    ACTIVE.current = previous
+    result
+
+pub fn ui_effect[F < 'static & FnMut() -> bool $ Reactive](owner: OwnerId, mut run: F) -> ComputationId:
+    rt := runtime()
+    run_effect(owner, fn() -> bool $ Reactive: in_runtime(rt, fn() -> bool $ Reactive: run()))
+
+pub fn ui_cleanup[F < 'static & FnMut() -> void](owner: OwnerId, mut callback: F) -> void:
+    rt := runtime()
+    cleanup_on(owner, fn() -> void: in_runtime(rt, fn() -> void: callback()))
 
 ## Queues one command for the next `take_commands`.
 pub fn emit(command: Command) -> void:
-    runtime().out.push(command)
+    rt := runtime()
+    if !rt.closed:
+        if rt.out.is_empty():
+            rt.output.notify()
+        rt.out.push(command)
 
 ## Makes a node id and emits its `Create`.
 pub fn create_node(kind: string) -> NodeId:
@@ -98,6 +144,8 @@ pub fn register_job(task: Suspend[void]) -> usize:
     id := rt.next_job
     rt.next_job += 1
     rt.jobs[id] = Job { task: task }
+    if rt.unposted.is_empty():
+        rt.work.notify()
     rt.unposted.push(id)
     id
 
@@ -122,11 +170,16 @@ pub fn take_new_jobs() -> List[usize]:
     rt.unposted = []
     ids
 
-## Runs one registered job on the current task: drives the loader and
-## lands its result. A job a `drop_job` removed is skipped.
+pub fn pop_job(rt: *mut Runtime) -> Job?:
+    while !rt.unposted.is_empty():
+        id := rt.unposted.remove_at(0)
+        match rt.jobs.remove(id):
+            .Some(job) => return .Some(job)
+            .None => pass
+    .None
+
 pub fn run_job!(id: usize) -> void:
-    found := runtime().jobs.remove(id)
-    match found:
+    match runtime().jobs.remove(id):
         .Some(job) =>
             let mut task = job.task
             task!()
@@ -190,3 +243,43 @@ pub fn reset_for_test() -> void:
     rt.ready = []
     rt.last_writes = []
     reset_graph_for_test()
+
+## A root's runtime is also the event generation. Never retarget an old handle.
+pub fn mount_in[$R](realm: *mut Graph, root: fn() -> void $ Ui + R) -> *mut Runtime $ R:
+    rt := new_runtime(realm)
+    rt.root = .Some(in_runtime(rt, fn() -> OwnerId $ R: mount(root)))
+    rt
+
+pub fn deliver(rt: *mut Runtime, event: UiEvent) -> void:
+    if !rt.closed:
+        in_runtime(rt, fn() -> void: dispatch(event))
+
+pub fn commands(rt: *mut Runtime) -> List[Command]:
+    in_runtime(rt, take_commands)
+
+pub fn finish(rt: *mut Runtime) -> void:
+    if rt.closed:
+        return
+    rt.closed = true
+    rt.stop.notify()
+    rt.work.notify()
+    rt.output.notify()
+    in_runtime(rt, fn() -> void:
+        match rt.root:
+            .Some(owner) => dispose(owner)
+            .None => pass
+    )
+    rt.root = .None
+    rt.handlers = {}
+    rt.ready = []
+    rt.jobs = {}
+    rt.unposted = []
+    rt.out = []
+
+pub fn unmount(rt: *mut Runtime) -> void:
+    if !rt.closed:
+        finish(rt)
+        rt.out.push(.Clear(0))
+
+pub fn is_closed(rt: *mut Runtime) -> bool:
+    rt.closed

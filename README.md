@@ -239,10 +239,7 @@ or Ctrl-C quits.
       text(fn(): "save")
   ```
 - **Untested at scale.** The examples are about 270 lines, and performance has not been measured.
-- **Signals are never freed,** including the one `for_each` makes per row, so a list that keeps mounting new
-  keys grows memory for as long as the program runs.
-- **Not included:** routing, virtualized lists, animation, accessibility beyond the DOM's own, and more than one
-  UI in a program.
+- The portable controls cover basic fields. See the [framework designs](docs/framework-designs.md) for ongoing work.
 - **A native renderer is blocked.** Host providers run only on JavaScript for now
   ([hd-lang#1191](https://github.com/HerringtonDarkholme/hd-lang/issues/1191) has an accepted design, not built yet), so
   the terminal renderer runs on Node.

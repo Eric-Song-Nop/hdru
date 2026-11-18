@@ -1,3 +1,4 @@
+use pkg.{graph, graph_signal}
 use pkg.{
     Command,
     Mutate,
@@ -191,7 +192,7 @@ fn card() -> void $ Ui + Theme:
 
 it("a theme switch is one signal write that restyles live styles"):
     reset_for_test()
-    palette := signal(Palette::light())
+    palette := graph_signal(graph(), Palette::light())
     _ := mount:
         provide_theme(palette):
             card()

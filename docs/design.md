@@ -56,10 +56,7 @@ Smaller facts worth keeping in mind:
 
 ## The reactive core
 
-**One program-wide graph.** A top-level `GRAPH := box(Graph { ... })` persists
-across calls, so `signal(initial)` needs no graph argument, as Solid's
-`createSignal` needs none. Sources, computations and owners live in maps keyed
-by one id counter.
+A mount created by `run_on!` owns a new graph. Use `mount_in(graph, component)` and `run_mount!` to share model signals between surfaces. The mount captures its command destination on each binding. Only synchronous callbacks enter the selected graph or mount. Resource completions re-enter after awaiting.
 
 **Lazy memos with versions, not heights.** Each source has a version, and each
 computation records the version it saw of each source. A write bumps the version,
@@ -82,8 +79,7 @@ at flush when a dependency moved. Stored bodies are `fn() -> bool $ Reactive`, w
 = $ Track + Mutate`, and run under a collector plus a `Mutate` provider, so a
 `sync` may write while a memo, bounded `$ Track`, cannot.
 
-**Lifetimes.** Signal sources have no owner and are never freed. Memo sources are
-removed when their owner is disposed.
+Signal slots hold the current value. Plain sources enter the graph on first subscription and leave when the last observer unsubscribes. A retained handle can subscribe again. `signal` requires an owner, and standalone models use `graph_signal(graph, value)`.
 
 **`Mutate` is a capability token and an observation hook; the graph owns
 scheduling.** `dispatch` installs a `WriteLog`, and `last_writes()` returns what
@@ -164,7 +160,7 @@ node, a `ui` one. Containers re-install only `Parent` and `Target`, a key of its
 
 **Providers are read-only data.** The provider is `Scope { owner, parent }`, and a
 container runs its block under a fresh one. Everything mutable (the pending
-commands, the handler table, the id counters) is one program-wide `Runtime` box,
+commands, the handler table, the id counters) lives in the mounted surface's `Runtime` box,
 so no provider method ever runs user code.
 
 **Command order is `Create`, `SetProp`s, `Append`, then content.** A node is
@@ -278,16 +274,11 @@ or answers handler 0, so the loop's tests in `ui` need no host at all. Tests bel
 
 ## Known limits
 
-- **One UI per program.** `GRAPH` and `RUNTIME` are program-wide, by the rule that no
-  provider method may run user code. Making the graph a provider value is possible,
-  since every flush already happens outside provider methods, but it touches every file.
 - **The boundary is a pull loop.** hd has no export registration
   (`HOST_EMBEDDING.md`), so the host cannot call `dispatch` directly.
 - **No in-flight cancellation.** As above. Each load would need a task of its own to cancel, and
   there is no way to start one later.
 - **A fixed pool of four,** for the same reason. The number is one constant.
-- **Signals are never freed**, as above. That includes the signal `for_each` makes for each
-  row, so a list that keeps mounting new keys grows the graph for as long as the program runs.
 - **`hd` runs on Node here.** This build has no wasmtime engine, so nothing has run on
   it, including `reactive` and `ui`, which have no host trait to stop them.
 

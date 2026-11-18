@@ -15,7 +15,7 @@ pub use pkg.keys.{
     Track,
     WriteLog,
 }
-pub use pkg.reactive.{ReadSignal, Signal, assert_no_writes, batch, effect, memo, signal, sync, untrack}
+pub use pkg.reactive.{ReadSignal, Signal, assert_no_writes, batch, effect, memo, graph_signal, signal, sync, untrack}
 pub use pkg.owner.{current_owner, on_cleanup, owned, root}
 pub use pkg.context.{Given, Provided, given, provide, use_context, use_given}
 
@@ -23,6 +23,11 @@ pub use pkg.context.{Given, Provided, given, provide, use_context, use_given}
 # on. `graph()` itself is not exported.
 pub use pkg.graph.{
     Computation,
+    Graph,
+    graph,
+    new_graph,
+    with_graph,
+    source_count,
     Kind,
     State,
     cleanup_on,

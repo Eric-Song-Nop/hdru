@@ -35,7 +35,7 @@ and a shared program should not get the page's origin that way. The program's ot
 **The host finds nodes by id, not by a DOM id.** A block calls `on_ready`, passes its `NodeId` to `Workbench.bind` with a
 role, and the host looks it up in the table it gave `createDomSurface`.
 
-**The shell and the program are separate wasm instances,** as `ui` holds one UI per program.
+**The shell and the program are separate wasm instances,** so that each compiled program has its own host and grants.
 
 ## The editor
 
