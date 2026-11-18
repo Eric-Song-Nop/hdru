@@ -249,8 +249,15 @@ pub fn flush() -> void:
     g.flushing = true
     let rounds = 0
     while !g.effects.is_empty():
-        queue := g.effects
+        let mut queue = g.effects
         g.effects = []
+        # A branch computation is allocated before it mounts its children.
+        # Re-subscription can reverse observer order, so restore creation
+        # order before an already-hidden child can read its old branch data.
+        for index in 1..queue.len():
+            if queue[index] < queue[index - 1]:
+                queue.sort()
+                break
         for id in queue:
             ensure_fresh(id)
         rounds += 1

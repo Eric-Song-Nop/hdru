@@ -1,0 +1,98 @@
+## An entity owns its save queue. Keep the action under the entity's owner
+## when a save should survive the editor being closed.
+use std.function.Fn
+use dep.reactive.{Mutate, Owner, ReadSignal, Signal, batch, memo, signal}
+use pkg.runtime.{Runtime, drop_job, in_runtime, register_job, runtime, ui_cleanup}
+
+pub struct FailedEdit[D, E]:
+    pub id: usize
+    pub edit: D
+    pub error: E
+
+struct Edit[D]:
+    id: usize
+    value: D
+
+struct Queue[T < 'static, D < 'static, E < 'static]:
+    confirmed: Signal[T]
+    edits: Signal[List[Edit[D]]]
+    failures: Signal[List[FailedEdit[D, E]]]
+    save: fn(usize, D, T) -> Suspend[Result[T, E]]
+    rt: *mut Runtime
+    alive: bool
+    job: usize?
+    next: usize
+
+pub struct Actions[T < 'static, D < 'static, E < 'static]:
+    pub visible: ReadSignal[T]
+    pub failures: ReadSignal[List[FailedEdit[D, E]]]
+    queue: *mut Queue[T, D, E]
+
+fn drain![T < 'static, D < 'static, E < 'static](q: *mut Queue[T, D, E]) -> void $ Mutate:
+    while q.alive && !q.edits.peek().is_empty():
+        current := q.edits.peek()[0]
+        let mut task = (q.save)(current.id, current.value, q.confirmed.peek())
+        result := task!()
+        if !q.alive:
+            return
+        in_runtime(q.rt, fn() -> void $ Mutate:
+            batch(fn() -> void $ Mutate:
+                match result:
+                    .Ok(confirmed) => q.confirmed.set(confirmed)
+                    .Err(error) =>
+                        failure := FailedEdit { id: current.id, edit: current.value, error: error }
+                        q.failures.update(fn(items): [items..., failure])
+                q.edits.update(fn(items): items.slice(1, items.len()))
+            )
+        )
+    q.job = .None
+
+fn enqueue[T < 'static, D < 'static, E < 'static](q: *mut Queue[T, D, E], id: usize, edit: D) -> void $ Mutate:
+    in_runtime(q.rt, fn() -> void $ Mutate:
+        if q.job.is_none():
+            q.job = .Some(register_job(drain(q)))
+        q.edits.update(fn(items): [items..., Edit { id: id, value: edit }])
+    )
+
+impl[T < 'static, D < 'static, E < 'static] Actions[T, D, E]:
+    pub fn submit(self, edit: D) -> usize? $ Mutate:
+        q := self.queue
+        if !q.alive:
+            return .None
+        id := q.next
+        q.next += 1
+        enqueue(q, id, edit)
+        .Some(id)
+
+    pub fn retry(self, id: usize) -> void $ Mutate:
+        q := self.queue
+        if !q.alive:
+            return
+        for failure in q.failures.peek():
+            if failure.id == id:
+                batch(fn() -> void $ Mutate:
+                    q.failures.update(fn(items): items.filter(fn(item): item.id != id))
+                    enqueue(q, id, failure.edit)
+                )
+                return
+
+pub fn actions[T < 'static & Eq, D < 'static, E < 'static,
+    Apply < 'static & Fn(T, D) -> T, Save < 'static & Fn(usize, D, T) -> Suspend[Result[T, E]],
+](initial: T, apply: Apply, save: Save) -> Actions[T, D, E] $ Owner:
+    q := box(Queue::[T, D, E] {
+        confirmed: signal(initial), edits: signal([]), failures: signal([]),
+        save: fn(id: usize, edit: D, base: T): save(id, edit, base),
+        rt: runtime(), alive: true, job: .None, next: 1,
+    })
+    visible := memo:
+        let value = q.confirmed.get()
+        for edit in q.edits.get():
+            value = apply(value, edit.value)
+        value
+    ui_cleanup($.use(Owner).owner(), fn() -> void:
+        q.alive = false
+        match q.job:
+            .Some(id) => drop_job(id)
+            .None => pass
+    )
+    Actions { visible: visible, failures: q.failures.read(), queue: q }

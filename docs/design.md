@@ -242,9 +242,9 @@ describes.
 resource's signal under the `Mutate` captured at construction. A generation counter
 makes a result for an old key, or for a disposed owner, a no-op. A queued job not yet
 taken is simply removed, which costs nothing for a cold suspension
-(`req.discard.cold`). An in-flight load is not cancelled: abandoning a suspension
-another task awaits cancels that task (`req.cancel.await`), which would kill the
-worker, so its result is dropped at landing.
+(`req.discard.cold`). Each worker races the job against a private channel. Disposal or replacement closes the sender, the losing load cleans up, and the worker continues. A still-queued replacement reuses the existing position.
+
+`query` exposes an initial loading state, refresh with the last value, and failure with an optional previous value. `query_when` pauses until its key exists. `async_panel` combines explicit statuses and keeps content mounted during refresh. `actions` serializes saves per entity, overlays pending edits on the confirmed value, and preserves the mutation ID when retrying a failure.
 
 **Policies.** `resource_with(key, load, policy)` wraps each load in a `std.task` layer
 such as `timeout(ms(5000))` or `retry(...)`. It is a separate function, not a default
@@ -275,8 +275,6 @@ or answers handler 0, so the loop's tests in `ui` need no host at all. Tests bel
 
 - **The boundary is a pull loop.** hd has no export registration
   (`HOST_EMBEDDING.md`), so the host cannot call `dispatch` directly.
-- **No in-flight cancellation.** As above. Each load would need a task of its own to cancel, and
-  there is no way to start one later.
 - **A fixed pool of four,** for the same reason. The number is one constant.
 - **`hd` runs on Node here.** This build has no wasmtime engine, so nothing has run on
   it, including `reactive` and `ui`, which have no host trait to stop them.
