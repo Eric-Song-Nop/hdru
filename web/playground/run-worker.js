@@ -1,7 +1,7 @@
 // Runs one user program. Its Surface forwards commands to the page and waits
 // for events from it; the page ends a run by terminating this worker.
-import { createWebHost } from "../../../hd-lang/host/web.ts";
-import { createPackageRuntime } from "../../../hd-lang/host/package-providers.ts";
+import { createWebHost } from "../../.toolchain/hd-lang/host/web.ts";
+import { createPackageRuntime } from "../../.toolchain/hd-lang/host/package-providers.ts";
 import * as generated from "./gen/run.host.mjs";
 
 const events = [];

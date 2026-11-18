@@ -252,15 +252,15 @@ or Ctrl-C quits.
 **In a browser, with nothing to install:** <https://hdru-playground.pages.dev/>. It is an hdru program itself
 ([`docs/playground.md`](docs/playground.md)).
 
-**Locally,** you need:
+**Locally**, install the Node version in `.node-version`, pnpm 10.8.0 and rustup. Then run:
 
-- The `hd-lang` checkout beside this repo at `../hd-lang`. The packages' tests and the provider tests were last
-  checked at commit `ccb6fc85`; the browser build and the playground at `9af95bd2f`. The browser build imports its
-  `host/*.ts` directly. The playground also needs the `hd-web-packages` branch of
-  [Eric-Song-Nop/hd-lang](https://github.com/Eric-Song-Nop/hd-lang/tree/hd-web-packages), which is `9af95bd2f` plus one.
-- The `hd` binary built from it: `cargo install --path crates/hd_cli` inside `../hd-lang`. The Node engine is the
-  default, and the renderers cannot run under wasmtime.
-- Node 24 (`hd-lang` pins 24.19.0), and `pnpm` (for `pnpm dlx esbuild`) if you build the browser pages.
+```sh
+./scripts/setup-toolchain.sh
+pnpm install --frozen-lockfile
+export PATH="$PWD/.toolchain/hd-lang/target/release:$PATH"
+```
+
+The checkout under `.toolchain` supplies the CLI, standard library, browser host, compiler and glue generator. Its revision and the playground's package-registration patch are in `scripts/`.
 
 ```sh
 cd examples/todos && hd run todos-tui

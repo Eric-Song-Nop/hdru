@@ -1,0 +1,402 @@
+diff --git a/crates/hd_web/examples/host_glue.rs b/crates/hd_web/examples/host_glue.rs
+new file mode 100644
+index 000000000..71490d6fc
+--- /dev/null
++++ b/crates/hd_web/examples/host_glue.rs
+@@ -0,0 +1,27 @@
++//! Writes the host glue of a module `hd_web` built, for a page that binds a
++//! registered package's host traits: `host_glue IN.wasm OUT.mjs`. Registered
++//! identities are fixed, so one generated file serves every compile.
++
++use std::process::ExitCode;
++
++fn main() -> ExitCode {
++    let args: Vec<String> = std::env::args().skip(1).collect();
++    let [input, output] = args.as_slice() else {
++        eprintln!("usage: host_glue IN.wasm OUT.mjs");
++        return ExitCode::FAILURE;
++    };
++    let result = std::fs::read(input)
++        .map_err(|e| e.to_string())
++        .and_then(|wasm| Ok(hd_driver::host_artifacts(&wasm)?))
++        .and_then(|artifacts| artifacts.ok_or_else(|| "the module has no host traits".to_owned()))
++        .and_then(|artifacts| {
++            std::fs::write(output, artifacts.javascript).map_err(|e| e.to_string())
++        });
++    match result {
++        Ok(()) => ExitCode::SUCCESS,
++        Err(why) => {
++            eprintln!("host_glue: {why}");
++            ExitCode::FAILURE
++        }
++    }
++}
+diff --git a/crates/hd_web/src/lib.rs b/crates/hd_web/src/lib.rs
+index 037494321..be49718cd 100644
+--- a/crates/hd_web/src/lib.rs
++++ b/crates/hd_web/src/lib.rs
+@@ -22,10 +22,13 @@ use hd_base::SliceSort as _;
+ use hd_cache::MemoryStore;
+ use hd_driver::diagnostics::{Diag, from_output};
+ use hd_driver::{
+-    BuildProfile, Counters, EngineTarget, Executor, Host, NoClock, OptLevel, Packages, TestCase,
+-    build_packages, test_programs,
++    BuildProfile, Counters, Dependency, EngineTarget, Executor, Host, HostPackage, NoClock,
++    OptLevel, Packages, TestCase, build_packages, test_programs,
++};
++use hd_project::{
++    HostDeclarations, HostProvider, MemorySources, Root, in_program, module_below, package_ident,
++    repl_file, repl_input,
+ };
+-use hd_project::{MemorySources, Root, in_program, module_below, repl_file, repl_input};
+ use hd_sched::SerialOrder;
+ 
+ pub mod wire;
+@@ -153,11 +156,32 @@ struct Repl {
+     pending: Option<hd_driver::Session>,
+ }
+ 
++/// A library a session's compiles can depend on, as a path dependency in a
++/// manifest would be (`crates/hd_web/DESIGN.md` §3.1).
++pub struct WebPackage {
++    /// Its manifest name; source names it `dep.` and the identifier form.
++    pub name: String,
++    /// What tells it from another package of the same name. It fixes the
++    /// ABI identity of the package's host traits, so generated glue stays
++    /// valid across compiles.
++    pub identity: String,
++    /// Its files, package-relative.
++    pub files: Vec<(String, String)>,
++    /// The manifest names of the packages it requires, each registered.
++    pub requires: Vec<String>,
++    /// Its `[host]` table: each trait path and its provider's path.
++    pub hosts: Vec<(String, String)>,
++    /// Whether the playground's own files may name it with `dep.`.
++    pub direct: bool,
++}
++
+ /// One playground worker's state.
+ #[derive(Default)]
+ pub struct Session {
+     /// The files of the last compile.
+     sources: MemorySources,
++    /// The libraries each compile can depend on, with their sources.
++    packages: Vec<(WebPackage, MemorySources)>,
+     store: MemoryStore,
+     /// The REPL session, once one started.
+     repl: Option<Repl>,
+@@ -169,6 +193,82 @@ impl Session {
+         Session::default()
+     }
+ 
++    /// Registers `package` for the compiles after this one, replacing a
++    /// package of the same name.
++    pub fn add_package(&mut self, package: WebPackage) {
++        let mut sources = MemorySources::default();
++        for (path, text) in &package.files {
++            sources.insert(path, text);
++        }
++        self.packages.retain(|(p, _)| p.name != package.name);
++        self.packages.push((package, sources));
++    }
++
++    /// The package index of `name`: registered package `i` is `i + 1`, as
++    /// in [`Packages::requires`].
++    fn package_index(&self, name: &str) -> Option<u16> {
++        let at = self.packages.iter().position(|(p, _)| p.name == name)?;
++        u16::try_from(at + 1).ok()
++    }
++
++    /// The registered packages' requirement edges for one package's
++    /// `names`; a name no package answers to is left out, and the build
++    /// reports the `dep.` path that reaches for it.
++    fn edges<'a>(&self, names: impl Iterator<Item = &'a str>) -> Vec<(String, u16)> {
++        names
++            .filter_map(|name| Some((package_ident(name), self.package_index(name)?)))
++            .collect()
++    }
++
++    /// The registered packages' dependencies, host tables and root edges.
++    fn dependencies(&self) -> (Vec<Dependency<'_>>, Vec<HostPackage>, Vec<(String, u16)>) {
++        let deps = self
++            .packages
++            .iter()
++            .map(|(p, sources)| Dependency {
++                name: p.name.clone(),
++                identity: p.identity.clone(),
++                sources,
++                requires: self.edges(p.requires.iter().map(String::as_str)),
++                fetched: false,
++            })
++            .collect();
++        let hosts = self
++            .packages
++            .iter()
++            .enumerate()
++            .filter(|(_, (p, _))| !p.hosts.is_empty())
++            .filter_map(|(at, (p, _))| {
++                Some(HostPackage {
++                    package: u16::try_from(at + 1).ok()?,
++                    identity: p.identity.clone(),
++                    versioned_source: None,
++                    declarations: Some(HostDeclarations {
++                        providers: Some(
++                            p.hosts
++                                .iter()
++                                .map(|(trait_path, path)| HostProvider {
++                                    trait_path: trait_path.clone(),
++                                    path: Some(path.clone()),
++                                    line: 0,
++                                })
++                                .collect(),
++                        ),
++                        line: 0,
++                    }),
++                    manifest: format!("{}/hd.toml", p.name),
++                })
++            })
++            .collect();
++        let requires = self.edges(
++            self.packages
++                .iter()
++                .filter(|(p, _)| p.direct)
++                .map(|(p, _)| p.name.as_str()),
++        );
++        (deps, hosts, requires)
++    }
++
+     /// Compiles `files`, each a playground path (`src/main.hd`) and its
+     /// text, for `goal`. `entry` is the file Run builds.
+     pub fn compile<P, T>(
+@@ -196,8 +296,12 @@ impl Session {
+         }
+         // One file outside the `src` layout is a single-file program, as
+         // `hd FILE.hd` builds a file with no `hd.toml` above it.
++        let (deps, host_packages, requires) = self.dependencies();
+         let packages = Packages {
+             single_file: count == 1 && Root::of(entry).0 == Root::Flat,
++            deps,
++            host_packages,
++            requires,
+             target: PIPELINE.0,
+             level: PIPELINE.1,
+             ..Packages::default()
+diff --git a/crates/hd_web/src/wire.rs b/crates/hd_web/src/wire.rs
+index 29cdb6fe9..0c5dd8abf 100644
+--- a/crates/hd_web/src/wire.rs
++++ b/crates/hd_web/src/wire.rs
+@@ -15,6 +15,7 @@
+ //! | 5 | repl input | none; entry empty | the input's text (a string), then optionally its number |
+ //! | 6 | repl outcome | none; entry empty | the module's number, then one outcome byte |
+ //! | 7 | repl rebuild input | none; entry empty | the input's text, then its number; builds a whole linked base |
++//! | 8 | add package | the package's files; entry empty | its name; its identity; a count of required names, then each; a count of host entries, then each trait path and provider path; one byte, 1 when the playground's files may name it |
+ //!
+ //! WAT requests compile as Run. The worker prints those bytes with the
+ //! separate `hd_wat` module, loaded only when the WAT view requests it.
+@@ -26,6 +27,10 @@
+ //! test goal's programs (the unit-test program, then each integration test
+ //! file's) follow one another in the bytes, each as long as its `size`.
+ //!
++//! Add package registers a library with the session
++//! ([`Session::add_package`]) for every later compile, and answers
++//! `{"diagnostics":[],"package":NAME}`. REPL sessions do not see it.
++//!
+ //! **REPL goals** drive the session's REPL session
+ //! ([`Session::repl_start`]), one input per request:
+ //!
+@@ -61,7 +66,7 @@ use std::fmt::Write as _;
+ 
+ use hd_driver::diagnostics::{Diag, quote};
+ 
+-use crate::{CompileResult, Goal, ReplBuild, ReplError, ReplOutcome, Session};
++use crate::{CompileResult, Goal, ReplBuild, ReplError, ReplOutcome, Session, WebPackage};
+ 
+ /// `hd_compile`'s status: compiled, and no diagnostic is an error.
+ pub const STATUS_OK: u32 = 0;
+@@ -93,6 +98,14 @@ pub enum Action {
+     ReplOutcome { input: u32, outcome: ReplOutcome },
+     /// Goal byte 7: a whole linked base for a recorded input's replay.
+     ReplRebuildInput { text: String, number: u32 },
++    /// Goal byte 8: register the request's files as a package.
++    AddPackage {
++        name: String,
++        identity: String,
++        requires: Vec<String>,
++        hosts: Vec<(String, String)>,
++        direct: bool,
++    },
+ }
+ 
+ /// Why a request did not decode.
+@@ -125,6 +138,28 @@ pub fn respond(session: &mut Session, request: &[u8]) -> Response {
+         Action::ReplRebuildInput { text, number } => {
+             repl_build(session.repl_rebuild_input_as(number, &text))
+         }
++        Action::AddPackage {
++            name,
++            identity,
++            requires,
++            hosts,
++            direct,
++        } => {
++            let json = format!("{{\"diagnostics\":[],\"package\":{}}}", quote(&name));
++            session.add_package(WebPackage {
++                name,
++                identity,
++                files: req.files,
++                requires,
++                hosts,
++                direct,
++            });
++            Response {
++                status: STATUS_OK,
++                json,
++                wasm: Vec::new(),
++            }
++        }
+         Action::ReplOutcome { input, outcome } => match session.repl_outcome(input, outcome) {
+             Ok(()) => Response {
+                 status: STATUS_OK,
+@@ -240,6 +275,31 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
+             };
+             Action::ReplOutcome { input, outcome }
+         }
++        8 => {
++            let name = r.string()?;
++            let identity = r.string()?;
++            let mut requires = Vec::new();
++            for _ in 0..r.leb()? {
++                requires.push(r.string()?);
++            }
++            let mut hosts = Vec::new();
++            for _ in 0..r.leb()? {
++                let trait_path = r.string()?;
++                hosts.push((trait_path, r.string()?));
++            }
++            let direct = match r.byte()? {
++                0 => false,
++                1 => true,
++                _ => return Err(WireError("unknown direct byte")),
++            };
++            Action::AddPackage {
++                name,
++                identity,
++                requires,
++                hosts,
++                direct,
++            }
++        }
+         _ => return Err(WireError("unknown goal byte")),
+     };
+     if r.at != bytes.len() {
+@@ -248,7 +308,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
+     if byte >= 4 && !entry.is_empty() {
+         return Err(WireError("a REPL request has no entry"));
+     }
+-    if byte >= 5 && !files.is_empty() {
++    if (5..=7).contains(&byte) && !files.is_empty() {
+         return Err(WireError("a REPL input or outcome carries no files"));
+     }
+     Ok(Request {
+@@ -701,6 +761,101 @@ mod tests {
+         );
+     }
+ 
++    /// An add package request for `files`, named `name`.
++    fn add_package(
++        files: &[(&str, &str)],
++        name: &str,
++        requires: &[&str],
++        hosts: &[(&str, &str)],
++        direct: bool,
++    ) -> Vec<u8> {
++        let mut out = request(files, "", 8);
++        string(&mut out, name);
++        string(&mut out, &format!("web:{name}"));
++        leb(&mut out, requires.len());
++        for r in requires {
++            string(&mut out, r);
++        }
++        leb(&mut out, hosts.len());
++        for (t, p) in hosts {
++            string(&mut out, t);
++            string(&mut out, p);
++        }
++        out.push(u8::from(direct));
++        out
++    }
++
++    #[test]
++    fn a_program_builds_against_registered_packages() {
++        let mut session = Session::new();
++        // Nothing registered: the path does not resolve.
++        let main = "use dep.greet_lib.{greet}\n\npub fn main() -> void $ Console:\n    println(greet())\n";
++        let files = [("src/main.hd", main)];
++        let cold = respond(&mut session, &request(&files, "src/main.hd", 0));
++        assert_eq!(cold.status, STATUS_ERRORS, "{}", cold.json);
++
++        let base = [("src/lib.hd", "pub fn word() -> string:\n    \"hi\"\n")];
++        let lib = [(
++            "src/lib.hd",
++            "use dep.base.word\n\npub fn greet() -> string:\n    word()\n",
++        )];
++        let answer = respond(&mut session, &add_package(&base, "base", &[], &[], false));
++        assert_eq!(answer.json, "{\"diagnostics\":[],\"package\":\"base\"}");
++        let answer = respond(
++            &mut session,
++            &add_package(&lib, "greet-lib", &["base"], &[], true),
++        );
++        assert_eq!(answer.status, STATUS_OK);
++
++        let run = respond(&mut session, &request(&files, "src/main.hd", 0));
++        assert_eq!(run.status, STATUS_OK, "{}", run.json);
++        assert_eq!(&run.wasm[..4], b"\0asm");
++
++        // A package that is not direct stays out of the playground's reach.
++        let reach = [(
++            "src/main.hd",
++            "use dep.base.word\n\npub fn main() -> void $ Console:\n    println(word())\n",
++        )];
++        let hidden = respond(&mut session, &request(&reach, "src/main.hd", 0));
++        assert_eq!(hidden.status, STATUS_ERRORS, "{}", hidden.json);
++    }
++
++    #[test]
++    fn a_registered_host_trait_reaches_the_contract() {
++        let mut session = Session::new();
++        let surface = [(
++            "src/lib.hd",
++            "@host\npub trait Ping:\n    fn ping!(&mut self) -> i32\n",
++        )];
++        let hosts = [("Ping", "providers/ping.mjs")];
++        respond(
++            &mut session,
++            &add_package(&surface, "pinger", &[], &hosts, true),
++        );
++        let main = "use dep.pinger.Ping\n\npub fn main!() -> void $ Ping + Console:\n    println($.use(Ping).ping!())\n";
++        let run = respond(
++            &mut session,
++            &request(&[("src/main.hd", main)], "src/main.hd", 0),
++        );
++        assert_eq!(run.status, STATUS_OK, "{}", run.json);
++        let artifacts = hd_driver::host_artifacts(&run.wasm).unwrap().unwrap();
++        assert_eq!(artifacts.contract.interfaces.len(), 1);
++    }
++
++    #[test]
++    fn a_malformed_add_package_is_an_error() {
++        let good = add_package(&[("src/lib.hd", "x")], "a", &["b"], &[("T", "p")], true);
++        for end in 0..good.len() {
++            assert!(decode_request(&good[..end]).is_err(), "{end}");
++        }
++        let mut direct = good.clone();
++        *direct.last_mut().unwrap() = 2;
++        assert_eq!(
++            decode_request(&direct),
++            Err(WireError("unknown direct byte"))
++        );
++    }
++
+     #[test]
+     fn a_malformed_request_answers_an_error() {
+         let r = respond(&mut Session::new(), &[1]);

@@ -2,3 +2,5 @@ build/
 /web/dist/
 /web/playground/dist/
 /web/playground/gen/
+/.toolchain/
+/node_modules/

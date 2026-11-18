@@ -70,16 +70,14 @@ slow first switches are not fully explained. The download has not been measured,
 
 ## Build and run
 
-You need `../hd-lang` on that branch, the `hd` binary built from it, cargo with the `wasm32-unknown-unknown` target, and
-pnpm.
+Follow the pinned toolchain setup in the [README](../README.md#try-it), then run:
 
 ```sh
-node web/playground/build.mjs                       # REBUILD_COMPILER=1 after changing hd-lang
+node web/playground/build.mjs
 python3 -m http.server -d web/playground/dist 8799
 ```
 
-`build.mjs` reuses `hd-lang/website/playground/assets/hd_web.wasm` when it exists, so without `REBUILD_COMPILER=1` a
-changed compiler is not picked up.
+The build invokes Cargo for the browser compiler and regenerates host glue from the example module.
 
 ## Deploy
 
