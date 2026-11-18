@@ -1,3 +1,4 @@
+use pkg.{effect, keyed, for_window}
 use pkg.{
     Command,
     Signal,
@@ -137,3 +138,45 @@ it("two items with one key panic", expect_panic="explicit-panic"):
     _ := mount:
         todos := signal([Todo { id: 1, title: "a" }, Todo { id: 1, title: "b" }])
         for_each(todos.read(), fn(todo): todo.id, fn(todo): text(fn(): todo.get().title))
+
+it("a rotation moves one retained row"):
+    reset_for_test()
+    _ := mount:
+        ids := signal([1, 2, 3, 4])
+        button(fn(): ids.set([2, 3, 4, 1])):
+            text(fn(): "rotate")
+        for_each(ids.read(), fn(id): id, fn(id): text(fn(): "${id.get()}"))
+    _ := take_commands()
+    moved := click(1)
+    assert_equal(moved.len(), 1, reason="one move suffices")
+    assert_equal(moved[0], Command.MoveBefore(3, 4, .None), reason="move A to the end")
+
+it("editing one cell in a paged model leaves the order computation asleep"):
+    reset_for_test()
+    visits := box(Counter { runs: 0 })
+    rows := box(Counter { runs: 0 })
+    _ := mount:
+        let mut initial: List[(usize, Signal[string])] = []
+        for key in 0..1000:
+            initial.push((key, signal("row $key")))
+        model := keyed(initial)
+        page := signal(0)
+        limit := signal(12)
+        effect(fn():
+            _ := model.items()
+            visits.runs += 1
+        )
+        button(fn(): model.lookup(3).expect("row").set("edited")):
+            text(fn(): "edit")
+        button(fn(): page.set(990)):
+            text(fn(): "next")
+        for_window(model, page.read(), limit.read(), fn(key, title):
+            rows.runs += 1
+            text(fn(): title.get())
+        )
+    _ := take_commands()
+    assert_equal(click(1).len(), 1, reason="one text binding")
+    assert_equal(visits.runs, 1, reason="no structural invalidation")
+    assert_equal(rows.runs, 12, reason="initial page")
+    _ := click(2)
+    assert_equal(rows.runs, 22, reason="last page clamps at the collection end")

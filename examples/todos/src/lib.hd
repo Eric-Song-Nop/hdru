@@ -1,14 +1,15 @@
 use dep.ui.{
     Mutate,
     Palette,
-    ReadSignal,
+    Keyed,
+    keyed,
     Signal,
     Style,
     Theme,
     Ui,
     button,
     column,
-    for_each,
+    for_keyed,
     input,
     memo,
     on,
@@ -26,49 +27,41 @@ use dep.ui.{
 fn quiet() -> Style:
     Style::empty().padding_x(10.0).padding_y(4.0).radius(6.0).border(1.0, rgba(128, 128, 128, 128)).bg(rgba(0, 0, 0, 0)).cursor(.Pointer)
 
-@derive(Eq)
 struct Todo:
-    id: usize
-    title: string
-    done: bool
-
-fn toggle(id: usize, xs: List[Todo]) -> List[Todo]:
-    [for todo in xs => if todo.id == id: Todo { ...todo, done: !todo.done } else: todo]
-
-fn without(id: usize, xs: List[Todo]) -> List[Todo]:
-    xs.filter(fn(todo): todo.id != id)
+    title: Signal[string]
+    done: Signal[bool]
 
 ## Appends a todo titled `title` unless it is blank, and clears the draft.
-fn add(todos: Signal[List[Todo]], next_id: Signal[usize], draft: Signal[string], title: string) -> void $ Mutate:
+fn add(todos: Keyed[usize, Todo], next_id: Signal[usize], draft: Signal[string], title: string) -> void $ Mutate:
     trimmed := title.trim()
     if trimmed == "":
         return
     id := next_id.peek()
     next_id.set(id + 1)
-    todos.update(fn(xs): [xs..., Todo { id: id, title: trimmed, done: false }])
+    todos.insert(id, Todo { title: todos.cell(trimmed), done: todos.cell(false) })
     draft.set("")
 
-fn todo_row(todos: Signal[List[Todo]], todo: ReadSignal[Todo]) -> void $ Ui:
+fn todo_row(todos: Keyed[usize, Todo], id: usize, todo: Todo) -> void $ Ui:
     row(style=Style::empty().gap(8.0).align(.Center)):
         # A done row fades: one key, restyled when the item changes.
         style_live:
-            Style::empty().opacity(if todo.get().done: 0.5 else: 1.0)
+            Style::empty().opacity(if todo.done.get(): 0.5 else: 1.0)
         view(style=Style::empty().grow(1.0)):
             text:
-                if todo.get().done:
-                    "[x] ${todo.get().title}"
+                if todo.done.get():
+                    "[x] ${todo.title.get()}"
                 else:
-                    "[ ] ${todo.get().title}"
+                    "[ ] ${todo.title.get()}"
         button(
             fn():
-                todos.update(fn(xs): toggle(todo.peek().id, xs))
+                todo.done.update(fn(value): !value)
             ,
             style=quiet(),
         ):
             text(fn(): "toggle")
         button(
             fn():
-                todos.update(fn(xs): without(todo.peek().id, xs))
+                todos.remove(id)
             ,
             style=quiet(),
         ):
@@ -76,17 +69,21 @@ fn todo_row(todos: Signal[List[Todo]], todo: ReadSignal[Todo]) -> void $ Ui:
 
 fn list() -> void $ Ui + Theme:
     theme := $.use(Theme).palette()
-    todos := signal(
+    todos := keyed(
         [
-            Todo { id: 1, title: "write the core", done: true },
-            Todo { id: 2, title: "write the builders", done: false },
-            Todo { id: 3, title: "ship a browser demo", done: false },
+            (1, Todo { title: signal("write the core"), done: signal(true) }),
+            (2, Todo { title: signal("write the builders"), done: signal(false) }),
+            (3, Todo { title: signal("ship a browser demo"), done: signal(false) }),
         ],
     )
     next_id := signal::[usize](4)
     draft := signal("")
     remaining := memo:
-        todos.get().filter(fn(todo): !todo.done).len()
+        let left = 0
+        for todo in todos.items():
+            if !todo.done.get():
+                left += 1
+        left
     p := theme.peek()
     column(style=Style::empty().gap(8.0).padding(16.0).radius(8.0).border(1.0, p.line)):
         style_live:
@@ -94,7 +91,7 @@ fn list() -> void $ Ui + Theme:
             Style::empty().bg(q.surface).color(q.on_surface).border_color(q.line)
         text:
             "${remaining.get()} left"
-        for_each(todos.read(), fn(todo): todo.id, fn(todo): todo_row(todos, todo))
+        for_keyed(todos, fn(id, todo): todo_row(todos, id, todo))
         row(style=Style::empty().gap(8.0)):
             input(draft, style=Style::empty().grow(1.0).padding_x(8.0).padding_y(4.0).radius(6.0).border(1.0, p.line)):
                 on(
@@ -112,7 +109,7 @@ fn list() -> void $ Ui + Theme:
                 text(fn(): "add")
             button(
                 fn():
-                    todos.update(fn(xs): xs.reversed())
+                    todos.reverse()
                 ,
                 style=quiet(),
             ):

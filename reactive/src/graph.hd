@@ -36,7 +36,10 @@ pub struct Source:
 pub struct OwnerRecord:
     pub parent: OwnerId?
     pub computations: List[ComputationId]
-    pub children: List[OwnerId]
+    pub first: OwnerId?
+    pub last: OwnerId?
+    pub prev: OwnerId?
+    pub next: OwnerId?
     pub cleanups: List[fn() -> void]
     ## Values an ancestor made available to its subtree by key.
     pub context: Map[string, *mut dyn Inspectable]
@@ -106,12 +109,18 @@ pub fn new_owner(parent: OwnerId?) -> OwnerId:
     g.owners[id] = OwnerRecord {
         parent: parent,
         computations: [],
-        children: [],
+        first: .None, last: .None, prev: .None, next: .None,
         cleanups: [],
         context: {},
     }
     match parent:
-        .Some(p) => g.owners[p].children.push(id)
+        .Some(p) =>
+            previous := g.owners[p].last
+            match previous:
+                .Some(sibling) => g.owners[sibling].next = .Some(id)
+                .None => g.owners[p].first = .Some(id)
+            g.owners[id].prev = previous
+            g.owners[p].last = .Some(id)
         .None => pass
     id
 
@@ -273,11 +282,20 @@ pub fn dispose(owner: OwnerId) -> void:
     match record.parent:
         .Some(p) =>
             if g.owners.contains_key(p):
-                match g.owners[p].children.index_of(owner):
-                    .Some(index) => _ := g.owners[p].children.remove_at(index)
-                    .None => pass
+                match record.prev:
+                    .Some(sibling) => g.owners[sibling].next = record.next
+                    .None => g.owners[p].first = record.next
+                match record.next:
+                    .Some(sibling) => g.owners[sibling].prev = record.prev
+                    .None => g.owners[p].last = record.prev
         .None => pass
-    for child in record.children:
+    let mut children: List[OwnerId] = []
+    let cursor = record.first
+    while cursor.is_some():
+        child := cursor.expect("child")
+        children.push(child)
+        cursor = g.owners[child].next
+    for child in children:
         dispose(child)
     for id in record.computations:
         drop_computation(id)
