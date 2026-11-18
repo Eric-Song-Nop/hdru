@@ -16,5 +16,5 @@ if [ ! -d "$src/.git" ]; then
 fi
 test "$(git -C "$src" rev-parse HEAD)" = "$revision"
 git -C "$src" diff --quiet
-git -C "$src" diff --cached --binary | cmp - "$root/scripts/playground-compiler.patch"
+git -C "$src" diff --cached --binary --full-index | cmp - "$root/scripts/playground-compiler.patch"
 (cd "$src" && cargo build --locked --release -p hd_cli)

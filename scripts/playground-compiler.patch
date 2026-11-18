@@ -1,6 +1,6 @@
 diff --git a/crates/hd_web/examples/host_glue.rs b/crates/hd_web/examples/host_glue.rs
 new file mode 100644
-index 000000000..71490d6fc
+index 0000000000000000000000000000000000000000..71490d6fcf748c4f2ae3c78764cce4f310449bd5
 --- /dev/null
 +++ b/crates/hd_web/examples/host_glue.rs
 @@ -0,0 +1,27 @@
@@ -32,7 +32,7 @@ index 000000000..71490d6fc
 +    }
 +}
 diff --git a/crates/hd_web/src/lib.rs b/crates/hd_web/src/lib.rs
-index 037494321..be49718cd 100644
+index 037494321b665e48f0e312b2ba204b7a4f5e9bcd..be49718cdcf7af3a6113bf598cbb3a263ba0bd39 100644
 --- a/crates/hd_web/src/lib.rs
 +++ b/crates/hd_web/src/lib.rs
 @@ -22,10 +22,13 @@ use hd_base::SliceSort as _;
@@ -182,7 +182,7 @@ index 037494321..be49718cd 100644
              level: PIPELINE.1,
              ..Packages::default()
 diff --git a/crates/hd_web/src/wire.rs b/crates/hd_web/src/wire.rs
-index 29cdb6fe9..0c5dd8abf 100644
+index 29cdb6fe92b3a66cad41f53c9d9d2d0c5f3121ac..0c5dd8abf8aaeba200628cdc9f4fa56258099d2a 100644
 --- a/crates/hd_web/src/wire.rs
 +++ b/crates/hd_web/src/wire.rs
 @@ -15,6 +15,7 @@
