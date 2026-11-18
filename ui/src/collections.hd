@@ -17,6 +17,36 @@ struct Rows[T < 'static, K < 'static & Eq & Hash]:
     rows: Map[K, Row[T]]
     order: List[K]
 
+# Positions of retained rows that can stay in place. A monotonic update
+# skips the binary searches entirely. A missing old position is a new row.
+fn stationary(positions: List[usize?]) -> Map[usize, bool]:
+    let mut tails: List[usize] = []
+    let mut previous: Map[usize, usize] = {}
+    for i in 0..positions.len():
+        match positions[i]:
+            .None => pass
+            .Some(position) =>
+                let low = tails.len()
+                let high = low
+                if low > 0 && positions[tails[low - 1]].expect("retained") >= position:
+                    low = 0
+                    while low < high:
+                        mid := low + (high - low) / 2
+                        if positions[tails[mid]].expect("retained") < position:
+                            low = mid + 1
+                        else:
+                            high = mid
+                if low > 0:
+                    previous[i] = tails[low - 1]
+                if low == tails.len(): tails.push(i) else: tails[low] = i
+    let mut keep: Map[usize, bool] = {}
+    let cursor = tails.last()
+    while cursor.is_some():
+        index := cursor.expect("retained")
+        keep[index] = true
+        cursor = previous.get(index)
+    keep
+
 ## Renders `render` once per item of `items`, keyed by `key`. When the
 ## list changes: a row whose key stays receives the new item through its
 ## signal, written only when the item differs, so an unrelated change to
@@ -38,23 +68,28 @@ pub fn for_each[
     run := fn() -> bool $ Reactive:
         list := items.get()
         let mut new_keys: List[K] = []
+        let mut seen: Map[K, bool] = {}
         for item in list:
             k := key(item)
-            if new_keys.contains(k):
+            if seen.contains_key(k):
                 panic("ui: for_each: duplicate key ${debug(k)}")
+            seen[k] = true
             new_keys.push(k)
-        old_order := state.order
-        let mut current: List[K] = []
-        for k in old_order:
-            if new_keys.contains(k):
-                current.push(k)
+        let mut old: Map[K, usize] = {}
+        for index in 0..state.order.len():
+            k := state.order[index]
+            if seen.contains_key(k):
+                old[k] = index
             else:
                 row := state.rows[k]
                 dispose(row.owner)
                 emit(.Remove(row.node))
                 _ := state.rows.remove(k)
-        for item in list:
-            k := key(item)
+        let mut positions: List[usize?] = []
+        for i in 0..list.len():
+            item := list[i]
+            k := new_keys[i]
+            positions.push(old.get(k))
             if state.rows.contains_key(k):
                 state.rows[k].item.set_if_changed(item)
             else:
@@ -67,23 +102,20 @@ pub fn for_each[
                 $.with(Owner=scope, Parent=scope, Track=box(NoTrack {})):
                     render(item_signal.read())
                 state.rows[k] = Row { owner: child, node: node, item: item_signal }
-                current.push(k)
-        let index = 0
-        while index < new_keys.len():
-            wanted := new_keys[index]
-            if current[index] != wanted:
-                match current.index_of(wanted):
-                    .Some(from) => _ := current.remove_at(from)
-                    .None => pass
-                current.insert(index, wanted)
-                emit(
-                    .MoveBefore(
-                        fragment,
-                        state.rows[wanted].node,
-                        .Some(state.rows[current[index + 1]].node),
-                    ),
-                )
-            index += 1
-        state.order = current
+        keep := stationary(positions)
+        let before: NodeId? = .None
+        let retained_after = false
+        let i = new_keys.len()
+        while i > 0:
+            i -= 1
+            node := state.rows[new_keys[i]].node
+            if positions[i].is_some():
+                if !keep.contains_key(i):
+                    emit(.MoveBefore(fragment, node, before))
+                retained_after = true
+            else if retained_after:
+                emit(.MoveBefore(fragment, node, before))
+            before = .Some(node)
+        state.order = new_keys
         false
     _ := ui_effect(owner, run)

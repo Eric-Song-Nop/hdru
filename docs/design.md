@@ -202,9 +202,8 @@ child owner, a fragment, and a `Signal[T]` whose read half `render` receives.
 
 - A retained row gets its new item through `set_if_changed`, which is why `T < Eq`:
   an unrelated change to the list reruns nothing inside that row.
-- For order, the old order minus removed keys, plus new keys, is walked against the
-  wanted order. Where they differ, the wanted row moves before the row there. An
-  append emits no move, and a prepend or a reverse of two emits one.
+- The planner checks keys once, indexes retained positions, and keeps their longest increasing subsequence. New fragments are appended on creation and placed from right to left. An edit at unchanged order takes linear planning, and arbitrary permutations take O(n log n).
+- `keyed` holds stable models separately from their order. The todos example updates a row's done signal directly. `for_window` materializes a slice selected by first-index and count signals.
 - Two items with one key panic with `ui: for_each: duplicate key <debug of key>`.
 - `render` takes a parameter, so it is an explicit closure, not a trailing block
   (`fn.trailing.parameterized`).

@@ -1,0 +1,86 @@
+## Ordered models with independent reactive fields. Tickets distinguish a
+## removed record from a new record with the same application key in a batch.
+use std.cmp.min
+use std.function.Fn
+use std.hash.Hash
+use dep.reactive.{Graph, Mutate, Owner, ReadSignal, Signal, Track, graph, graph_signal, memo, signal}
+use pkg.collections.for_each
+use pkg.keys.Ui
+
+struct Entries[K < 'static & Eq & Hash, T < 'static]:
+    by_key: Map[K, usize]
+    records: Map[usize, (K, T)]
+    next: usize
+
+pub struct Keyed[K < 'static & Eq & Hash, T < 'static]:
+    entries: *mut Entries[K, T]
+    order: Signal[List[usize]]
+    realm: *mut Graph
+
+pub fn keyed[K < 'static & Eq & Hash, T < 'static](initial: List[(K, T)]) -> Keyed[K, T] $ Owner:
+    entries := box(Entries::[K, T] { by_key: {}, records: {}, next: 1 })
+    let mut tickets: List[usize] = []
+    for (key, item) in initial:
+        if entries.by_key.contains_key(key):
+            panic("ui: duplicate model key")
+        ticket := entries.next
+        entries.next += 1
+        entries.by_key[key] = ticket
+        entries.records[ticket] = (key, item)
+        tickets.push(ticket)
+    Keyed { entries: entries, order: signal(tickets), realm: graph() }
+
+impl[K < 'static & Eq & Hash, T < 'static] Keyed[K, T]:
+    ## Allocate an entity field, including from an event handler.
+    pub fn cell[V < 'static](self, value: V) -> Signal[V]:
+        graph_signal(self.realm, value)
+
+    pub fn lookup(self, key: K) -> T?:
+        self.entries.by_key.get(key).map(fn(ticket): self.entries.records[ticket]._1)
+
+    pub fn insert(self, key: K, item: T) -> void $ Mutate:
+        if self.entries.by_key.contains_key(key):
+            panic("ui: duplicate model key")
+        ticket := self.entries.next
+        self.entries.next += 1
+        self.entries.by_key[key] = ticket
+        self.entries.records[ticket] = (key, item)
+        self.order.update(fn(ids): [ids..., ticket])
+
+    pub fn remove(self, key: K) -> void $ Mutate:
+        match self.entries.by_key.remove(key):
+            .Some(ticket) =>
+                _ := self.entries.records.remove(ticket)
+                self.order.update(fn(ids): ids.filter(fn(id): *id != ticket))
+            .None => pass
+
+    pub fn reverse(self) -> void $ Mutate:
+        self.order.update(fn(ids): ids.reversed())
+
+    pub fn items(self) -> List[T] $ Track:
+        [for ticket in self.order.get() => self.entries.records[ticket]._1]
+
+pub fn for_keyed[K < 'static & Eq & Hash, T < 'static, F < 'static & Fn(K, T) -> void $ Ui](
+    models: Keyed[K, T], render: F,
+) -> void $ Ui:
+    render_tickets(models, models.order.read(), render)
+
+## Materialize only the requested rows. The caller supplies layout spacers
+## or terminal paging appropriate to its viewport.
+pub fn for_window[K < 'static & Eq & Hash, T < 'static, F < 'static & Fn(K, T) -> void $ Ui](
+    models: Keyed[K, T], first: ReadSignal[usize], count: ReadSignal[usize], render: F,
+) -> void $ Ui:
+    visible := memo:
+        ids := models.order.get()
+        start := min(first.get(), ids.len())
+        size := min(count.get(), ids.len() - start)
+        ids.slice(start, start + size)
+    render_tickets(models, visible, render)
+
+fn render_tickets[K < 'static & Eq & Hash, T < 'static, F < 'static & Fn(K, T) -> void $ Ui](
+    models: Keyed[K, T], tickets: ReadSignal[List[usize]], render: F,
+) -> void $ Ui:
+    for_each(tickets, fn(id): id, fn(id):
+        let (key, item) = models.entries.records[id.peek()]
+        render(key, item)
+    )
