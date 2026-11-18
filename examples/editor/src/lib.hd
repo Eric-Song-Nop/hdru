@@ -1,0 +1,197 @@
+## The same application runs in the browser and the terminal. Record models
+## live above their editors. Opening a record allocates its save queue once.
+use dep.ui.{
+    Actions,
+    Choice,
+    Mutate,
+    Owner,
+    Signal,
+    Track,
+    Ui,
+    actions,
+    button,
+    column,
+    field,
+    field_checkbox,
+    field_input,
+    field_select,
+    for_each,
+    keyed,
+    memo,
+    on_select,
+    on_text_edit,
+    on_submit,
+    query,
+    row,
+    show,
+    signal,
+    submit_fields,
+    text,
+}
+use std.cmp.min
+use std.time.{Clock, ms}
+
+struct Edit:
+    title: string
+    fail_once: bool
+
+type Saves = Actions[string, Edit, string]
+
+struct Record:
+    id: usize
+    initial: string
+    saves: Signal[Saves?]
+
+impl Record:
+    fn title(self) -> string $ Track:
+        match self.saves.get():
+            .Some(q) => q.visible.get()
+            .None => self.initial
+
+    fn open(
+        self,
+        owner: *dyn Owner,
+        clock: *mut dyn Clock,
+        selected: Signal[List[usize]],
+    ) -> void $ Mutate:
+        if self.saves.peek().is_none():
+            failed := box::[Map[usize, bool]]({})
+            saves := $.with(Owner=owner):
+                actions(
+                    self.initial,
+                    fn(_base: string, edit: Edit): edit.title,
+                    fn!(id: usize, edit: Edit, _base: string) -> Result[string, string]:
+                        clock.sleep!(ms(200))
+                        if edit.fail_once && !failed.contains_key(id):
+                            (*failed)[id] = true
+                            .Err("Save failed")
+                        else:
+                            _ := failed.remove(id)
+                            .Ok(edit.title)
+                )
+            self.saves.set(.Some(saves))
+        selected.set_if_changed([self.id])
+
+fn required(title: string) -> Result[void, string]:
+    if title.trim() == "": .Err("Enter a title") else: .Ok(())
+
+fn detail(record: Record, selected: Signal[List[usize]]) -> void $ Ui:
+    saves := record.saves.peek().expect("opened record")
+    title := field(.Label("Title"), saves.visible.peek(), required)
+    fail := field(
+        .Label("Fail next save"),
+        false,
+        fn(_value: bool) -> Result[void, string]: .Ok(())
+    )
+    save := fn() -> void $ Mutate:
+        if submit_fields([title.check()]):
+            _ := saves.submit(
+                Edit { title: title.value.peek().trim(), fail_once: fail.value.peek() },
+            )
+            fail.value.set(false)
+    column:
+        text(fn(): "Editing record ${record.id}")
+        field_input(title):
+            on_submit(fn(_title: string): save())
+        field_checkbox(fail)
+        row:
+            button(save):
+                text(fn(): "Save")
+            button(fn(): selected.set([])):
+                text(fn(): "Close editor")
+        show(fn(): !saves.failures.get().is_empty()):
+            text(fn(): "Save failed")
+            button(fn():
+                match saves.failures.peek().first():
+                    .Some(failure) => saves.retry(failure.id)
+                    .None => pass
+            ):
+                text(fn(): "Retry save")
+
+pub fn app() -> void $ Ui + Clock:
+    let owner: *dyn Owner = $.use(Owner)
+    let clock: *mut dyn Clock = $.use(Clock)
+    let mut entries: List[(usize, Record)] = []
+    for index in 0..1000:
+        id := index + 1
+        entries.push((id, Record { id: id, initial: "Record $id", saves: signal(.None) }))
+    records := keyed(entries)
+    search := field(
+        .Label("Search records"),
+        "",
+        fn(_value: string) -> Result[void, string]: .Ok(())
+    )
+    size := field(.Label("Rows per page"), "12", required)
+    selected := signal::[List[usize]]([])
+    first := signal::[usize](0)
+    results := query(
+        fn(): search.value.get().trim(),
+        fn!(term: string) -> Result[string, string]:
+            clock.sleep!(ms(200))
+            .Ok(term.lower())
+        , retain_on_change=true,
+    )
+    matches := memo:
+        term := results.snapshot.get().value().unwrap_or("")
+        let mut found: List[usize] = []
+        for record in records.items():
+            if term == "" || record.title().lower().contains(term):
+                found.push(record.id)
+        found
+    page_size := memo:
+        if size.value.get() == "5":
+            5
+        else:
+            12
+    page_start := memo:
+        total := matches.get().len()
+        limit := page_size.get()
+        if total == 0:
+            0
+        else:
+            min(first.get(), ((total - 1) / limit) * limit)
+    visible := memo:
+        ids := matches.get()
+        start := page_start.get()
+        ids.slice(start, min(start + page_size.get(), ids.len()))
+    column:
+        field_input(search):
+            on_text_edit(fn(_term: string): first.set_if_changed(0))
+        field_select(
+            size,
+            [Choice { key: "5", label: "5 rows" }, Choice { key: "12", label: "12 rows" }],
+        ):
+            on_select(fn(_key: string): first.set_if_changed(0))
+        row:
+            button(fn():
+                start := page_start.peek()
+                first.set(start - min(start, page_size.peek()))
+            ):
+                text(fn(): "Previous")
+            button(fn():
+                next := page_start.peek() + page_size.peek()
+                if next < matches.peek().len():
+                    first.set(next)
+            ):
+                text(fn(): "Next")
+            button(fn(): results.refresh()):
+                text(fn(): "Refresh")
+        text(fn():
+            count := matches.get().len()
+            if count == 1: "1 record" else: "$count records"
+        )
+        show(fn(): results.snapshot.get().status().pending):
+            text(fn(): "Refreshing records")
+        for_each(
+            selected.read(),
+            fn(id): id,
+            fn(id): detail(records.lookup(id.peek()).expect("selected record"), selected)
+        )
+        for_each(
+            visible,
+            fn(id): id,
+            fn(id):
+                record := records.lookup(id.peek()).expect("visible record")
+                button(fn(): record.open(owner, clock, selected)):
+                    text(fn(): record.title())
+        )

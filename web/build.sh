@@ -7,7 +7,7 @@ PATH="$here/../.toolchain/hd-lang/target/release:$PATH"
 export PATH
 test -x "$here/../.toolchain/hd-lang/target/release/hd"
 mkdir -p "$here/dist"
-for app in counter todos fetcher; do
+for app in counter todos fetcher editor; do
   (cd "$here/../examples/$app" && hd build)
   cp "$here/../examples/$app/build/debug/$app.wasm" "$here/dist/$app.wasm"
 done

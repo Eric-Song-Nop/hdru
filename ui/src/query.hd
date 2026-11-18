@@ -23,10 +23,16 @@ impl[T, E] Snapshot[T, E]:
 pub struct Query[T < 'static, E < 'static]:
     pub snapshot: ReadSignal[Snapshot[T, E]]
     revision: Signal[usize]
+    cancel_pending: fn() -> void $ Mutate
 
 impl[T < 'static, E < 'static] Query[T, E]:
     pub fn refresh(self) -> void $ Mutate:
         self.revision.update(fn(value): value + 1)
+
+    ## Stop the current attempt. A refreshing query keeps its last ready
+    ## value, and cancelling its first load returns it to Idle.
+    pub fn cancel(self) -> void $ Mutate:
+        (self.cancel_pending)()
 
 struct Request[K]:
     key: K?
@@ -78,8 +84,22 @@ pub fn query_when[K < 'static & Eq, T < 'static, E < 'static,
         match request.job:
             .Some(id) => drop_job(id)
             .None => pass
+        request.job = .None
     )
-    Query { snapshot: state.read(), revision: revision }
+    Query { snapshot: state.read(), revision: revision,
+        cancel_pending: fn() -> void $ Mutate:
+            match request.job:
+                .Some(id) =>
+                    in_runtime(request.rt, fn() -> void $ Mutate:
+                        request.generation += 1
+                        request.job = .None
+                        drop_job(id)
+                        match state.peek().value():
+                            .Some(previous) => state.set(.Ready(previous))
+                            .None => state.set(.Idle)
+                    )
+                .None => pass
+    }
 
 pub fn query[K < 'static & Eq, T < 'static, E < 'static,
     Key < 'static & Fn() -> K $ Track, Load < 'static & Fn(K) -> Suspend[Result[T, E]],
@@ -102,6 +122,9 @@ impl[T, E] Snapshot[T, E]:
             .Loading => PanelState { ready: false, pending: true, error: .None }
 
 impl[E] PanelState[E]:
+    pub fn map_error[F](self, convert: fn(E) -> F) -> PanelState[F]:
+        PanelState { ready: self.ready, pending: self.pending, error: self.error.map(convert) }
+
     pub fn and(self, other: PanelState[E]) -> PanelState[E]:
         PanelState { ready: self.ready && other.ready, pending: self.pending || other.pending,
             error: if self.error.is_some(): self.error else: other.error }

@@ -4,7 +4,8 @@
 ## `Parent`: the owner that retains what the body creates and the node new
 ## nodes are appended to. An eager signal read inside a component, whose
 ## row is `$ Ui`, is a compile error because `Ui` holds no `Track`.
-use dep.reactive.{Owner, OwnerId}
+use dep.reactive.{Graph, Owner, OwnerId, graph}
+use pkg.runtime.runtime
 
 ## A host node. Node 0 is the mount point the host provides.
 pub type NodeId = usize
@@ -33,15 +34,27 @@ pub type Decorate = $ Owner + Target
 pub struct Scope:
     pub owner: OwnerId
     pub parent: NodeId
+    pub generation: usize = runtime().generation
+    pub bound: *mut Graph = graph()
+
+impl Scope:
+    fn check(&self) -> void:
+        if self.generation != runtime().generation || self.bound.identity != graph().identity:
+            panic("ui: scope belongs to a different mount")
 
 impl Owner for Scope:
     fn owner(&self) -> OwnerId:
+        self.check()
         self.owner
+
+    fn realm(&self) -> *mut Graph: self.bound
 
 impl Parent for Scope:
     fn parent(&self) -> NodeId:
+        self.check()
         self.parent
 
 impl Target for Scope:
     fn target(&self) -> NodeId:
+        self.check()
         self.parent

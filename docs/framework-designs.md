@@ -1,6 +1,6 @@
 # Growing hdru with hd's effect system
 
-Design proposal against hdru `fb04ea9` and hd-lang `07e1e5ce8`. The first target is a long-lived application that shares its UI between a browser and a terminal. API names below are proposed.
+Design proposal against hdru `fb04ea9` and hd-lang `07e1e5ce8`. The first target is a long-lived application that shares its UI between a browser and a terminal. The numbered sections preserve the original design. The implementation and its verification are listed at the end.
 
 ## What the effect system gives us
 
@@ -96,6 +96,13 @@ CI should build from an empty artifact cache, run the hd workspace suite and Nod
 
 ## Delivery order and evidence
 
-Start with the toolchain and mount lifetime. Ship the keyed planner independently, then use the editable model, cancellation and accessible form designs together in one browser/TUI application. Give it 1,000 searchable rows, a delayed refresh, an editable detail view and a save that can fail. Measure planner work, host commands, live graph entries, worker occupancy and per-renderer update time.
+The stack implements the pinned toolchain, graph and mount lifetimes, keyed planner and collections, cancellable queries and optimistic actions, and portable validated fields. The [record editor](../examples/editor/src/lib.hd) exercises them together on the DOM and terminal.
 
-Standalone probes ran on the locally installed CLI. The loader factory above, a saved callback retaining a concrete context, and a cold suspension constructed inside that context all read the original provider under a different caller binding. A waiting load raced against a per-job channel produced `started, cleaned, superseded, next job`. A negative probe produced `row-parameter-in-context` as the current spec requires. These verify the underlying mechanisms. The proposed APIs, scale targets, renderer behavior and release pin still need implementation and integration tests.
+| Workload | Checked behavior |
+| --- | --- |
+| Page through 1,000 records | 12 row owners on the first page. An unfiltered title edit sends one text command and skips order reconciliation. A four-row rotation sends one move. [Collection tests](../ui/tests/for_each.hd) |
+| Replace every row 25 times, then close | Live source, computation, owner and handler counts stay at baseline after each replacement and reach zero on close. An idle second mount receives a shared write. [Mount tests](../ui/tests/mounts.hd) |
+| Supersede four blocked loads | Four active workers clean up and become available for replacements. Explicit close waits for cleanup. Retrying a failed save reuses its mutation ID. [Async tests](../ui/tests/async.hd) |
+| Search, edit and save | Both renderers run the same compiled component. Chromium checks accessible names, validation focus, retained focus across reorder, and retry after closing a failed editor. The terminal checks keyboard-only search, selection and editing. [Browser smoke test](../scripts/browser-smoke.mjs) · [Terminal integration test](../ui-tui/providers/tui.test.mjs) |
+
+After building the examples and playground, `node scripts/browser-smoke.mjs` prints elapsed time from the browser save click to the DOM update. With the pinned CLI on PATH, `node --test --test-name-pattern="compiled editor" ui-tui/providers/tui.test.mjs` measures the keypress to the updated terminal frame over pipes. The measurements include different host paths and vary by machine. CI checks the resulting state and command counts.

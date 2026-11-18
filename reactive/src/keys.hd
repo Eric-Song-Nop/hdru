@@ -5,6 +5,8 @@
 ## belongs to, and the checker rejects a write inside a memo. The `ui`
 ## package adds a `Parent` key and names `$ Owner + Parent` as `Ui`.
 
+use pkg.graph.{Graph, graph, graph_id}
+
 pub type SourceId = usize
 pub type ComputationId = usize
 pub type OwnerId = usize
@@ -28,6 +30,7 @@ pub trait Mutate:
 ## there, and is disposed with them.
 pub trait Owner:
     fn owner(&self) -> OwnerId
+    fn realm(&self) -> *mut Graph: graph()
 
 ## The `Track` provider the runtime installs around a computation.
 pub struct Collector:
@@ -73,7 +76,11 @@ impl Mutate for NoWrites:
 ## The `Owner` provider `root` and `owned` install.
 pub struct OwnedBy:
     pub owner: OwnerId
+    pub bound: *mut Graph = graph()
 
 impl Owner for OwnedBy:
     fn owner(&self) -> OwnerId:
+        if self.bound.identity != graph_id(): panic("reactive: owner belongs to a different graph")
         self.owner
+
+    fn realm(&self) -> *mut Graph: self.bound

@@ -1,8 +1,7 @@
-## The program-wide UI runtime: the pending command list, the handler
-## table, the job table and the id counters. `mount` builds a tree;
-## `dispatch` routes one event to its handler and flushes. Everything here
-## is synchronous except `run_job!`; a renderer package such as `ui-dom`
-## supplies the loop that moves commands, events and jobs across a host.
+## A mount owns its command queue, event handlers, ready callbacks and jobs.
+## Synchronous builders select a mount while executing. Async tasks keep the
+## handle and re-enter it when they publish a result.
+use std.ops.Disposable
 use std.function.FnMut
 use std.task.{Receiver, Sender, channel, race}
 use dep.reactive.{Graph, Reactive, ComputationId, graph, with_graph, run_effect, cleanup_on, dispose, Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
@@ -40,6 +39,7 @@ pub struct Runtime:
     next_handler: usize
     ## Jobs by id, until a worker takes one.
     stops: Map[usize, Sender[void]]
+    busy: usize
     jobs: Map[usize, Job]
     ## Ids registered since the loop last took them.
     unposted: List[usize]
@@ -76,7 +76,7 @@ pub fn new_runtime(realm: *mut Graph) -> *mut Runtime:
         work: Pulse { pair: .None },
         output: Pulse { pair: .None },
         stop: Pulse { pair: .None },
-        out: [], handlers: {}, next_node: 1, next_handler: 1, jobs: {}, stops: {}, unposted: [], next_job: 1, ready: [], last_writes: [],
+        out: [], handlers: {}, next_node: 1, next_handler: 1, jobs: {}, stops: {}, busy: 0, unposted: [], next_job: 1, ready: [], last_writes: [],
     })
 
 struct Selection:
@@ -225,9 +225,37 @@ pub fn pop_job(rt: *mut Runtime) -> Job?:
 fn stopped!(stop: Receiver[void]) -> void:
     _ := stop.recv!()
 
+struct Occupied:
+    rt: *mut Runtime
+    id: usize
+
+impl Disposable for Occupied:
+    fn dispose(&mut self) -> void:
+        self.rt.busy -= 1
+        _ := self.rt.stops.remove(self.id)
+
 pub fn drive_job!(rt: *mut Runtime, job: Job) -> void:
+    rt.busy += 1
+    using slot = Occupied { rt: rt, id: job.id }
     race!(stopped(job.stop), job.task)
-    _ := rt.stops.remove(job.id)
+
+## Graph counts include every mount sharing that graph. Handler and job counts
+## belong to the supplied mount. A cancelling loader stays busy during cleanup.
+@derive(Eq, Debug)
+pub struct MountStats:
+    pub sources: usize
+    pub owners: usize
+    pub computations: usize
+    pub handlers: usize
+    pub queued: usize
+    pub busy: usize
+
+pub fn mount_stats(rt: *mut Runtime) -> MountStats:
+    MountStats {
+        sources: rt.realm.sources.len(), owners: rt.realm.owners.len(),
+        computations: rt.realm.computations.len(), handlers: rt.handlers.len(),
+        queued: rt.jobs.len(), busy: rt.busy,
+    }
 
 pub fn run_job!(id: usize) -> void:
     rt := runtime()

@@ -1,4 +1,7 @@
 use pkg.{Command, Ui, UiEvent, button, commands, deliver, graph_signal, mount_in, new_graph, text, unmount, with_graph}
+use std.task.{Receiver, Sender, channel, join}
+use std.ops.Disposable
+use pkg.{Owner, Parent, Signal, Runtime, query, close_mount, Renderer, run_mount, MountStats, for_each, mount_stats, signal}
 use dep.reactive.source_count
 use std.testing.assert_equal
 
@@ -31,3 +34,122 @@ it("two mounts route shared updates to their own outboxes and dispose independen
 it("a tracked signal rejects another graph", expect_panic="explicit-panic"):
     count := graph_signal(new_graph(), +0)
     _ := mount_in(new_graph(), fn() -> void $ Ui: text(fn(): "${count.get()}"))
+
+it("replacing every row releases its subscriptions, owners, computations and handlers"):
+    rt := mount_in(new_graph(), fn() -> void $ Ui:
+        ids := signal([1, 2, 3, 4])
+        button(fn(): ids.update(fn(keys): [for key in keys => key + 4])):
+            text(fn(): "replace")
+        for_each(ids.read(), fn(id): id, fn(id):
+            value := signal(id.peek())
+            button(fn(): value.update(fn(n): n + 1)):
+                text(fn(): "${value.get()}")
+        )
+    )
+    baseline := mount_stats(rt)
+    assert_equal(baseline.handlers, 5, reason="one control and four rows")
+    for _round in 0..25:
+        _ := commands(rt)
+        deliver(rt, UiEvent { handler: 1, payload: "" })
+        assert_equal(mount_stats(rt), baseline, reason="stable after each replacement")
+    unmount(rt)
+    assert_equal(mount_stats(rt), MountStats {
+        sources: 0, owners: 0, computations: 0, handlers: 0, queued: 0, busy: 0
+    }, reason="nothing retained by the graph or mount")
+
+struct WaitingSurface:
+    input: Receiver[UiEvent]
+    frames: Sender[string]
+
+impl Renderer for WaitingSurface:
+    fn next_event!(&mut self) -> UiEvent:
+        self.input.recv!().unwrap_or(UiEvent { handler: 0, payload: "" })
+
+    fn apply!(&mut self, batch: List[Command]) -> void:
+        for command in batch:
+            match command:
+                .SetText(_, value) => self.frames.send!(value)
+                _ => pass
+
+fn observe!(a: Receiver[string], b: Receiver[string], send_a: Sender[UiEvent], send_b: Sender[UiEvent]) -> void:
+    assert_equal(a.recv!(), .Some("0"), reason="first mounted")
+    assert_equal(b.recv!(), .Some("0"), reason="second mounted")
+    send_a.send!(UiEvent { handler: 1, payload: "" })
+    assert_equal(a.recv!(), .Some("1"), reason="first received its own write")
+    assert_equal(b.recv!(), .Some("1"), reason="idle second surface woke without input")
+    send_a.close()
+    send_b.close()
+
+it("an idle surface applies another running mount's shared write"):
+    realm := new_graph()
+    value := graph_signal(realm, +0)
+    component := fn() -> void $ Ui:
+        button(fn(): value.update(fn(n): n + 1)):
+            text(fn(): "${value.get()}")
+    a := mount_in(realm, component)
+    b := mount_in(realm, component)
+    let (send_a, input_a) = channel::[UiEvent](capacity=1)
+    let (send_b, input_b) = channel::[UiEvent](capacity=1)
+    let (frames_a, received_a) = channel::[string](capacity=1)
+    let (frames_b, received_b) = channel::[string](capacity=1)
+    let mut run_a = $.with(Renderer=box(WaitingSurface { input: input_a, frames: frames_a })):
+        run_mount(a)
+    let mut run_b = $.with(Renderer=box(WaitingSurface { input: input_b, frames: frames_b })):
+        run_mount(b)
+    _ := join!(run_a, run_b, observe(received_a, received_b, send_a, send_b))
+
+struct Cleaned:
+    tally: *mut usize
+
+impl Disposable for Cleaned:
+    fn dispose(&mut self) -> void:
+        *self.tally += 1
+
+fn close_loaded!(rt: *mut Runtime, started: Receiver[void], tally: *mut usize) -> void:
+    for _slot in 0..4:
+        _ := started.recv!()
+    assert_equal(mount_stats(rt).busy, 4, reason="every worker has entered its loader")
+    close_mount!(rt)
+    assert_equal(*tally, 4, reason="close waits for cleanup")
+    assert_equal(mount_stats(rt).busy, 0, reason="workers acknowledged shutdown")
+
+it("explicit close stops blocked input and waits for every active load"):
+    let (began, started) = channel::[void](capacity=4)
+    let (_release, blocked) = channel::[void](capacity=1)
+    tally := box::[usize](0)
+    rt := mount_in(new_graph(), fn() -> void $ Ui:
+        for slot in 0..4:
+            _ := query(fn(): slot, fn!(id: usize) -> Result[usize, string]:
+                using guard = Cleaned { tally: tally }
+                began.send!(())
+                _ := blocked.recv!()
+                .Ok(id)
+            )
+    )
+    let (_input, waiting) = channel::[UiEvent](capacity=1)
+    let (frames, _updates) = channel::[string](capacity=1)
+    let mut drive = $.with(Renderer=box(WaitingSurface { input: waiting, frames: frames })):
+        run_mount(rt)
+    _ := join!(drive, close_loaded(rt, started, tally))
+
+it("an explicitly captured Owner allocates signals on its original graph"):
+    let saved = box::[Option[*dyn Owner]](.None)
+    let saved_value = box::[Option[Signal[usize]]](.None)
+    realm := new_graph()
+    _ := mount_in(realm, fn() -> void $ Ui: *saved = .Some($.use(Owner)))
+    _ := mount_in(new_graph(), fn() -> void $ Ui:
+        $.with(Owner=(*saved).expect("captured owner")):
+            *saved_value = .Some(signal(23))
+    )
+    value := (*saved_value).expect("signal")
+    reader := mount_in(realm, fn() -> void $ Ui: text(fn(): "${value.get()}"))
+    assert_equal(commands(reader).contains(.SetText(1, "23")), true, reason="original graph")
+
+it("a retained Parent cannot retarget another mount on the same graph", expect_panic="explicit-panic"):
+    saved := box::[Option[*dyn Parent]](.None)
+    realm := new_graph()
+    _ := mount_in(realm, fn() -> void $ Ui: *saved = .Some($.use(Parent)))
+    _ := mount_in(realm, fn() -> void $ Ui:
+        $.with(Parent=(*saved).expect("captured parent")):
+            text(fn(): "wrong mount")
+    )
