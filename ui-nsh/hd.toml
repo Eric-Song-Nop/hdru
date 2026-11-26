@@ -1,0 +1,8 @@
+[package]
+name = "ui-nsh"
+
+[dependencies]
+ui = { path = "../ui", version = "0.1.0" }
+
+[host]
+"surface.Surface" = "providers/native-only.mjs"

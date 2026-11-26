@@ -1,2 +1,2 @@
 [workspace]
-members = ["reactive", "ui", "ui-dom", "ui-tui", "playground", "examples/counter", "examples/todos", "examples/fetcher", "examples/editor"]
+members = ["reactive", "ui", "ui-dom", "ui-tui", "ui-nsh", "playground", "examples/counter", "examples/todos", "examples/fetcher", "examples/editor"]

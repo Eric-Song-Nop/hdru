@@ -43,7 +43,7 @@ fn counter() -> void $ Ui + Theme:
             ):
                 text(fn(): "+")
 
-## The app, for either renderer: its entries are `main.hd` and `tui.hd`.
+## The shared app for the DOM, terminal, and Native Shell entries.
 pub fn app() -> void $ Ui:
     palette := signal(Palette::light())
     dark := signal(false)

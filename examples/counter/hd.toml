@@ -5,10 +5,12 @@ name = "counter"
 ui = { path = "../../ui", version = "0.1.0" }
 ui-dom = { path = "../../ui-dom", version = "0.1.0" }
 ui-tui = { path = "../../ui-tui", version = "0.1.0" }
+ui-nsh = { path = "../../ui-nsh", version = "0.1.0" }
 
 [capabilities]
 "dep.ui_dom.surface.Surface" = true
 "dep.ui_tui.surface.Surface" = true
+"dep.ui_nsh.surface.Surface" = true
 
 [[executable]]
 name = "counter"
@@ -17,3 +19,7 @@ module = "main"
 [[executable]]
 name = "counter-tui"
 module = "tui"
+
+[[executable]]
+name = "counter-nsh"
+module = "nsh"

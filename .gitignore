@@ -4,3 +4,4 @@ build/
 /web/playground/gen/
 /.toolchain/
 /node_modules/
+/ui-nsh/native/target/

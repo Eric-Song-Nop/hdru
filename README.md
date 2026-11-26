@@ -4,7 +4,7 @@ A fine-grained reactive UI library for [hd](https://github.com/HerringtonDarkhol
 Components run once, a change updates only what read it, and there is no virtual DOM.
 
 What makes it different is that the rules you normally keep in your head, or in a lint
-config, are compile errors here. The same UI renders to a browser or a terminal.
+config, are compile errors here. The same UI can render to a browser, a terminal, or a native window.
 
 **Status: an experiment, not ready for production.** See [Limits](#limits).
 
@@ -182,7 +182,7 @@ fn profile() -> void $ Ui + Clock:
 `resource_with(key, load, policy)` wraps each load in a `std.task` policy such as
 `with_timeout(ms(5000), retry(Backoff {}))`.
 
-## One UI, two renderers
+## One UI, three renderers
 
 The UI only emits commands, so an app chooses a renderer in its entry, and the rest of it stays the same.
 
@@ -220,10 +220,11 @@ pub fn main!() -> void $ Surface:
   ╰──────────────────────────────────────╯
 ```
 
-A renderer is two methods, `apply!` and `next_event!`, and `ui` holds the loop that drives them. The terminal one was added without changing a
-line of `reactive` or `ui`. In a terminal, Tab and Shift-Tab move the focus, Enter and Space click, a left
+A surface implements `apply!` and `next_event_v2!`, and `ui` holds the loop that drives them. In a terminal, Tab and Shift-Tab move the focus, Enter and Space click, a left
 press focuses and clicks, typing edits a focused field, Space toggles a checkbox, and `q` (outside a field)
 or Ctrl-C quits.
+
+The counter also has a [Native Shell](https://nsh.dev/) entry. Run `./scripts/run-nsh.sh` to open it in an AppKit window on macOS or a GTK window on Linux. The launcher builds the hd guest and runs it in Wasmtime. See [the Native Shell renderer](docs/rendering.md#the-native-shell-renderer) for prerequisites.
 
 The [record editor](examples/editor/src/lib.hd) has 1,000 searchable records, a delayed refresh and a detail form. Choose **Fail next save** to exercise rollback, close the editor, then reopen it and retry. The mount owns each record's save queue, so closing a detail form leaves pending work alive.
 
@@ -271,6 +272,8 @@ cd examples/todos && hd run todos-tui
 | one package | `hd test -p reactive` (or `ui`, `ui-dom`, `ui-tui`) |
 | provider tests and the layering rules | `node --test ui-dom/providers/dom.test.mjs ui-tui/providers/tui.test.mjs layering.test.mjs` |
 | the examples in a terminal | `hd run counter-tui`, `hd run todos-tui`, `hd run fetcher-tui`, `hd run editor-tui`, each in its `examples/` folder |
+| the counter in a macOS or Linux desktop window | `./scripts/run-nsh.sh` |
+| the counter as a local macOS app bundle | `./scripts/run-nsh.sh --bundle` |
 | a terminal app driven by keys, printing plain frames | `cd examples/counter && printf '\t\rq' \| hd run counter-tui` |
 | an example under Node, DOM provider, scripted clicks | `cd examples/counter && UI_CLICKS=2,2,1 hd run counter --engine node` |
 | the todos example, typing "milk" and pressing Enter | `cd examples/todos && UI_CLICKS=1,8=milk,10 hd run todos --engine node` |
@@ -285,6 +288,7 @@ cd examples/todos && hd run todos-tui
 | `ui/` | the `Ui` row, builders, `show`, `for_each`, inputs, resources, `Style`, `Theme`, the command protocol, the `Renderer` trait and its loop, `Recorder` |
 | `ui-dom/` | the browser renderer: the `Surface` host trait, `run_app!`, the JavaScript provider, and what only the DOM has (`attr`, `dom_class`, `dom_on`, `link`, `textarea`) |
 | `ui-tui/` | the terminal renderer: the `Surface` host trait, `run_app!`, the JavaScript provider |
+| `ui-nsh/` | the Native Shell renderer, its `Surface` host trait, `run_app!`, and the Rust Wasmtime provider |
 | `playground/` | an hdru playground written in hdru, DOM-only |
 | `examples/` | `counter`, `todos`, `fetcher` and `editor`, each with its app in `src/lib.hd` and an entry per renderer |
 | `web/` | browser pages for the examples and the playground |

@@ -11,6 +11,7 @@ hdru/
   ui/          layer 2 types and layer 3 vocabulary
   ui-dom/      the DOM renderer: host trait, loop, provider
   ui-tui/      the terminal renderer: the same shape on Node
+  ui-nsh/      Native Shell renderer and Wasmtime embedder
   playground/  a DOM-only app: edit, check and run hdru programs in the browser
   examples/    counter, todos, fetcher: apps on either renderer
   web/         browser pages for the examples and the playground
@@ -22,9 +23,9 @@ hdru/
 - **The layers are enforceable.** hd has no package-private visibility
   (`module.vis.no-package-private`): inside one package, every helper another file needs is
   `pub`. A package boundary is the only real encapsulation hd offers.
-- **The core does not depend on JavaScript.** A package declaring an `@host` trait must map it
-  to a provider file, and that provider runs only on JavaScript hosts. With the host trait in
-  the renderer package, `reactive` and `ui` have none.
+- **The core has no host traits.** A renderer declares its own `@host` trait and maps it to a
+  provider file for JavaScript hosts. A Wasmtime embedder can register a Rust implementation
+  for that trait using the generated bindings.
 - **One host trait maps to one provider file,** so a second renderer needs its own trait in its
   own package. This is React's shape: `react` plus `react-dom` or `react-native`. The terminal
   renderer came exactly this way, with no change in `reactive` or `ui`.
@@ -40,12 +41,13 @@ hdru/
 | `ui` | `dep.ui` | the `Parent` and `Target` keys, `type Ui = $ Owner + Parent` and `type Decorate = $ Owner + Target`; `Command`, `PropValue`, `Color`, `Size`, `UiEvent`; `Style`; `Theme`; builders, `show`, `for_each`, inputs, `resource`; `mount`, `dispatch`, `take_commands`; the `Renderer` trait, the loop `run_on!`, and `Recorder`, `scripted`; `on_ready`, `take_keys`; `prop`, `Style.host_prop`, `text_field`, `container` for a renderer's own words. Re-exports `reactive`'s user-facing names | none |
 | `ui-dom` | `dep.ui_dom` | `surface.hd` (`@host trait Surface`), `app.hd` (`run_app!`, the adapter to `Renderer`), `dom.hd` (`attr`, `DomStyle`, `dom_on`, `link`, `textarea`), `providers/dom.mjs` and its Node test | `surface.Surface` → `providers/dom.mjs` |
 | `ui-tui` | `dep.ui_tui` | `surface.hd`, `app.hd`, `providers/tui.mjs` and its Node test | `surface.Surface` → `providers/tui.mjs` |
+| `ui-nsh` | `dep.ui_nsh` | `surface.hd`, `app.hd`, Rust provider and desktop runner in `native/` | `surface.Surface` → native Wasmtime registration |
 | `playground` | | the shell in `src/lib.hd`, its `@host trait Workbench`, and `providers/`: the compiler's wire format and the worker and iframe | `workbench.Workbench` → `providers/workbench.mjs` |
 | `examples/*` | | an app in `src/lib.hd`, with entries `src/main.hd` (DOM) and `src/tui.hd` (terminal) | |
 
-The loop and `Recorder` are in `ui` because they depend only on the protocol. A host trait is per package, since one
-trait maps to one provider file, so each renderer's `app.hd` is a small adapter from its `Surface` to `Renderer`.
-Tests of the loop run in `ui` on a `Recorder`, with no host; each renderer tests only its adapter.
+The loop and `Recorder` are in `ui` because they depend only on the protocol. Each renderer's
+`app.hd` adapts its package's `Surface` to `Renderer`. Tests of the loop run in `ui`
+on a `Recorder`, and provider tests exercise each renderer's host boundary.
 
 ### `reactive`'s low-level API
 
@@ -73,7 +75,7 @@ dependencies are not visible: `use dep.reactive` without a direct requirement is
 ```toml
 # hd.toml
 [workspace]
-members = ["reactive", "ui", "ui-dom", "ui-tui", "playground", "examples/counter", "examples/todos", "examples/fetcher"]
+members = ["reactive", "ui", "ui-dom", "ui-tui", "ui-nsh", "playground", "examples/counter", "examples/todos", "examples/fetcher", "examples/editor"]
 ```
 
 ```toml
@@ -100,10 +102,12 @@ name = "counter"
 ui = { path = "../../ui", version = "0.1.0" }
 ui-dom = { path = "../../ui-dom", version = "0.1.0" }
 ui-tui = { path = "../../ui-tui", version = "0.1.0" }
+ui-nsh = { path = "../../ui-nsh", version = "0.1.0" }
 
 [capabilities]
 "dep.ui_dom.surface.Surface" = true
 "dep.ui_tui.surface.Surface" = true
+"dep.ui_nsh.surface.Surface" = true
 
 [[executable]]
 name = "counter"
@@ -112,11 +116,15 @@ module = "main"
 [[executable]]
 name = "counter-tui"
 module = "tui"
+
+[[executable]]
+name = "counter-nsh"
+module = "nsh"
 ```
 
 - **An app may consent to several renderers.** `hd` binds only the host trait the entry's row names
   (`cli.host.entry-binding`), so `counter-tui` never loads `dom.mjs`. The app lives in `src/lib.hd` because an entry
-  module cannot be imported (`cli.exe.entry-no-use`). With two executables `hd run` needs the name
+  module cannot be imported (`cli.exe.entry-no-use`). With several executables `hd run` needs the name
   (`cli.run.default.one`).
 - **Path requirements carry a `version`,** so a tagged release needs no manifest edit
   (`module.version.no-bare-path-release`). `[package]` takes no `version` key, because the tag is the only version
@@ -134,6 +142,7 @@ module = "tui"
 | one package | `hd test -p reactive` (or `ui`, `ui-dom`, `ui-tui`) |
 | provider tests and the layering rules | `node --test ui-dom/providers/dom.test.mjs ui-tui/providers/tui.test.mjs layering.test.mjs` |
 | an app in the terminal | `hd run -p counter counter-tui`, from anywhere in the tree |
+| the counter in Native Shell on macOS or Linux | `./scripts/run-nsh.sh` |
 | an app under Node, DOM provider | `cd examples/counter && UI_CLICKS=2,2,1 hd run counter --engine node` |
 | the browser pages | `./web/build.sh`, which takes the provider from `ui-dom/providers/dom.mjs` |
 | the playground | `node web/playground/build.mjs`, then serve `web/playground/dist/` |

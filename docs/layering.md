@@ -12,19 +12,19 @@ a node kind, a property or an event. [`rendering.md`](rendering.md) has the tabl
 | --- | --- | --- |
 | nothing about nodes | `reactive` | `signal`, `memo`, `effect`, owners, context |
 | the protocol, and a meaning every renderer can give it | `ui` | `button`, `input`, `Style`, `Theme`, `Command`, `resource`, the loop `run_on!`, `Recorder` |
-| one platform | that renderer: `ui-dom`, `ui-tui` | the `Surface` host trait, providers, `attr`, `dom_class`, `dom_on`, `link`, `textarea` |
+| one platform | that renderer: `ui-dom`, `ui-tui`, `ui-nsh` | the `Surface` host trait, providers, `attr`, `dom_class`, `dom_on`, `link`, `textarea` |
 | one program | the app | the playground's `Workbench` and its compiler protocol |
 
 Imports go one way, and a package names only what is below it:
 
 ```
-app  ->  ui-dom | ui-tui  ->  ui  ->  reactive
+app  ->  ui-dom | ui-tui | ui-nsh  ->  ui  ->  reactive
 ```
 
 - `reactive` imports nothing of ours, and `ui` imports only `reactive`. Neither has a `[host]` table, so neither
   depends on JavaScript.
 - A renderer imports `ui` and never another renderer.
-- A portable app's `src/lib.hd` imports only `ui`. Its entries (`src/main.hd`, `src/tui.hd`) pick the renderer.
+- A portable app's `src/lib.hd` imports only `ui`. Its entries (`src/main.hd`, `src/tui.hd`, `src/nsh.hd`) pick the renderer.
 
 ## `ui` does not follow HTML
 
@@ -76,8 +76,7 @@ Each step is a separate place where this goes wrong.
 - [ ] State its meaning without naming a platform. If you cannot, it is not portable.
 - [ ] Add the row to the kind, key or event table in `rendering.md`, with what each renderer does.
 - [ ] Add the builder in `ui`, following the conventions below.
-- [ ] Implement it in `ui-dom/providers/dom.mjs` and `ui-tui/providers/tui.mjs`. Both, in the same change:
-      `layering.test.mjs` fails on a kind only one renderer knows.
+- [ ] Implement it in the DOM, terminal, and Native Shell providers.
 - [ ] Test the commands in `ui/tests/`, with no host.
 - [ ] Test each provider in its `providers/*.test.mjs`.
 - [ ] Use it in an example, and run that in both a terminal and a browser.
@@ -147,7 +146,7 @@ fn title() -> void $ Ui + Provided[string]:
 | `ui` offers no DOM words | the compiler: `unknown-import`, `unknown-method` |
 | acting on a node needs a block that has one; a leaf takes no children | the compiler: the `Target` key and the `Decorate` row |
 | imports go one way; `ui` and `reactive` have no host and no prefixed names | `layering.test.mjs` |
-| every kind in `ui` exists in both renderers | `layering.test.mjs` |
+| the DOM and terminal providers implement every kind in `ui` | `layering.test.mjs` |
 | the terminal paints what the real program sends | `ui-tui/providers/tui.test.mjs`, against a fixture |
 
 ## Known gaps
