@@ -1,7 +1,7 @@
 ## The playground: edit an hdru program, see its type errors as you type, run
 ## it beside the commands it sends. Written in hdru; the compiler and the
 ## preview are behind the `Workbench` host trait.
-use std.function.Fn
+use std.ops.Fn
 use dep.ui.{
     Align,
     Mutate,
@@ -126,7 +126,7 @@ pub fn appended(log: string, more: string) -> string:
     # Cut at a line, so the panel never starts mid-character or mid-line.
     let mut lines = next.split("\n")
     while lines.len() > 1 && lines.join("\n").len() > LOG_LIMIT:
-        _ := lines.remove_at(0)
+        _ := lines.remove(0)
     lines.join("\n")
 
 # The keys the editor takes from the browser. After Escape it takes none, so that
@@ -139,7 +139,7 @@ fn editor_keys(leaving: bool) -> List[string]:
 pub fn leaving_after(key: string, now: bool) -> bool:
     if key == "Escape":
         return true
-    if ["Shift", "Control", "Alt", "Meta"].contains(key):
+    if ["Shift", "Control", "Alt", "Meta"].contains(&key):
         return now
     false
 

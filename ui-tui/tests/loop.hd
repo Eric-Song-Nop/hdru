@@ -19,7 +19,7 @@ impl Surface for Host:
         event := if self.events.is_empty():
             UiEvent { handler: 0, payload: "" }
         else:
-            self.events.remove_at(0)
+            self.events.remove(0)
         Packet { generation: self.generation, handler: event.handler, payload: .Click(event.payload) }
 
 fn app() -> void $ Ui:

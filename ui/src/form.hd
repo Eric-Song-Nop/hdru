@@ -1,4 +1,4 @@
-use std.function.Fn
+use std.ops.Fn
 use dep.reactive.{Mutate, Owner, ReadSignal, Signal, Track, memo, signal}
 use pkg.builders.{column, container, prop, show, styled_node, text}
 use pkg.inputs.{checkbox, decorate_node, input, on_select}

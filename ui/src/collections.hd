@@ -1,7 +1,7 @@
 use pkg.runtime.{ui_effect}
 ## Keyed collections: `for_each` renders one row per item and keeps a row
 ## alive across updates as long as its key is present.
-use std.function.Fn
+use std.ops.Fn
 use std.format.{Debug, debug}
 use std.hash.Hash
 use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, ReadSignal, Reactive, Signal, Track, dispose, new_owner, signal}

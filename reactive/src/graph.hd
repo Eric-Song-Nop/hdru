@@ -1,8 +1,8 @@
 ## A dependency graph holds its subscribed sources,
 ## computation and owner. Nothing here calls user code while holding a
 ## reference into the graph; every walk copies its list out first.
-use std.inspect.Inspectable
-use std.function.FnMut
+use std.meta.Inspectable
+use std.ops.FnMut
 use pkg.keys.{Collector, ComputationId, Mutate, OwnerId, Reactive, Scheduler, SourceId, Track}
 
 @derive(Eq)
@@ -200,7 +200,7 @@ fn unobserve(source: SourceId, id: ComputationId) -> void:
     if !g.sources.contains_key(source):
         return
     match g.sources[source].observers.index_of(id):
-        .Some(index) => _ := g.sources[source].observers.remove_at(index)
+        .Some(index) => _ := g.sources[source].observers.remove(index)
         .None => pass
 
     if g.sources[source].observers.is_empty() && g.sources[source].producer.is_none():
@@ -344,7 +344,7 @@ fn forget_if_constant(id: ComputationId) -> void:
     drop_computation(id)
     if g.owners.contains_key(owner):
         match g.owners[owner].computations.index_of(id):
-            .Some(index) => _ := g.owners[owner].computations.remove_at(index)
+            .Some(index) => _ := g.owners[owner].computations.remove(index)
             .None => pass
 
 ## Empties the graph and resets its counters. For tests that assert exact

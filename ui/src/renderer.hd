@@ -132,7 +132,7 @@ impl Renderer for Recorder:
         if self.events.is_empty():
             UiEvent { handler: 0, payload: "" }
         else:
-            self.events.remove_at(0)
+            self.events.remove(0)
 
 ## A recorder that will answer `clicks` in order, then stop.
 pub fn scripted(clicks: List[usize]) -> *mut Recorder:

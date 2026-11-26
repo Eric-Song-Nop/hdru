@@ -2,7 +2,7 @@ use pkg.runtime.{ui_effect, ui_cleanup}
 ## Resources: a value loaded by a suspending function whenever a tracked
 ## key changes. The loader runs on one of `run_app!`'s workers, so the
 ## event loop keeps serving clicks while it waits.
-use std.function.Fn
+use std.ops.Fn
 use std.task.{Layer, apply}
 use std.time.Clock
 use dep.reactive.{Mutate, Owner, OwnerId, ReadSignal, Reactive, Signal, Track, signal}

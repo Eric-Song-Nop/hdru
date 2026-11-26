@@ -3,7 +3,7 @@ use pkg.runtime.{ui_effect}
 ## user's edit arrives as an event payload and is written into the signal;
 ## a write from elsewhere is sent to the control as a `SetProp`, except the
 ## value the control already shows, so a keystroke is never echoed back.
-use std.function.{Fn, FnMut}
+use std.ops.{Fn, FnMut}
 use dep.reactive.{Mutate, Owner, OwnerId, Reactive, Signal, Track}
 use pkg.keys.{Decorate, NodeId, Parent, Scope, Target, Ui}
 use pkg.runtime.emit

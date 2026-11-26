@@ -1,6 +1,6 @@
 ## Owner-tree context: a value an ancestor provides by key, found by any
 ## descendant. The value is boxed once; every reader shares it.
-use std.inspect.Inspectable
+use std.meta.Inspectable
 use pkg.keys.{Owner, OwnerId}
 use pkg.graph.graph
 

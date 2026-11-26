@@ -140,7 +140,7 @@ it("style_live restyles the block's node by key"):
             button(fn(): level.set(level.peek())):
                 text(fn(): "same")
     commands := take_commands()
-    assert_equal(commands.contains(.SetProp(1, "opacity", .Number(1.0))), true, reason="the first run")
+    assert_equal(commands.contains(&.SetProp(1, "opacity", .Number(1.0))), true, reason="the first run")
     assert_equal(click(1), [.SetProp(1, "radius", .Number(6.0))], reason="only the new key")
     assert_equal(click(2), [], reason="an equal style emits nothing")
     assert_equal(click(1), [.SetProp(1, "opacity", .Unset)], reason="a key that went unset")
@@ -166,9 +166,9 @@ it("prop sets a key on the block's node, following what it reads"):
         ):
             text(fn(): "up")
     commands := take_commands()
-    assert_equal(commands.contains(.SetProp(1, "x:id", .Text("main"))), true, reason="the column")
-    assert_equal(commands.contains(.SetProp(2, "x:title", .Text("first"))), true, reason="the view inside")
-    assert_equal(commands.contains(.SetProp(2, "x:level", .Text("low"))), true, reason="the first value")
+    assert_equal(commands.contains(&.SetProp(1, "x:id", .Text("main"))), true, reason="the column")
+    assert_equal(commands.contains(&.SetProp(2, "x:title", .Text("first"))), true, reason="the view inside")
+    assert_equal(commands.contains(&.SetProp(2, "x:level", .Text("low"))), true, reason="the first value")
     assert_equal(click(1), [], reason="2 is still low: no command")
     assert_equal(click(1), [.SetProp(2, "x:level", .Text("high"))], reason="3 is high: one SetProp")
 
@@ -200,7 +200,7 @@ it("a theme switch is one signal write that restyles live styles"):
             text(fn(): "dark")
     commands := take_commands()
     assert_equal(
-        commands.contains(.SetProp(1, "background", .Paint(Palette::light().surface))),
+        commands.contains(&.SetProp(1, "background", .Paint(Palette::light().surface))),
         true,
         reason="light at mount",
     )

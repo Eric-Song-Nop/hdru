@@ -1,6 +1,6 @@
 ## An entity owns its save queue. Keep the action under the entity's owner
 ## when a save should survive the editor being closed.
-use std.function.Fn
+use std.ops.Fn
 use dep.reactive.{Mutate, Owner, ReadSignal, Signal, batch, memo, signal}
 use pkg.runtime.{Runtime, drop_job, in_runtime, register_job, runtime, ui_cleanup}
 

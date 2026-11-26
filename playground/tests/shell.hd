@@ -182,7 +182,7 @@ it("every role is bound once the shell has been applied"):
     assert_equal(bench.bound.is_empty(), true, reason="not while mounting")
     run_ready()
     for role in ["shell", "editor-gutter", "editor-back", "editor-input", "preview", "commands"]:
-        assert_equal(bench.bound.contains(role), true, reason=role)
+        assert_equal(bench.bound.contains(&role), true, reason=role)
 
 it("the theme button saves the choice and only restyles"):
     reset_for_test()

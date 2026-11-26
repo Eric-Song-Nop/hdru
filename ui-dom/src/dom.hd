@@ -1,7 +1,7 @@
 ## The words only the DOM has. Each lowers to a `dom:` key, kind or event, which
 ## other renderers ignore, so code that reaches past the portable vocabulary
 ## shows it in its imports (`rendering.md`).
-use std.function.{Fn, FnMut}
+use std.ops.{Fn, FnMut}
 use dep.ui.{Decorate, Mutate, Owner, PropValue, Signal, Style, Target, Track, Ui, container, on, prop, text_field}
 
 ## `dom_class`, as a chain method on `ui`'s `Style`.

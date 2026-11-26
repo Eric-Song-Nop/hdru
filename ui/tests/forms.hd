@@ -63,7 +63,7 @@ it("typed fields validate, request focus and reject incompatible or stale events
     let (node, edit) = listener(initial, "input")
     submit := listener(initial, "enter")._1
     assert_equal(
-        initial.contains(.SetProp(node, "field_id", .Text("1"))),
+        initial.contains(&.SetProp(node, "field_id", .Text("1"))),
         true,
         reason="stable field id",
     )
@@ -76,20 +76,20 @@ it("typed fields validate, request focus and reject incompatible or stale events
     )
     assert_equal(commands(rt).is_empty(), true, reason="stale generation")
     report := send(rt, submit, .Submit(""))
-    assert_equal(report.contains(.Focus(node)), true, reason="focus first invalid control")
+    assert_equal(report.contains(&.Focus(node)), true, reason="focus first invalid control")
     assert_equal(
-        report.contains(.SetProp(node, "described_by", .Text("1"))),
+        report.contains(&.SetProp(node, "described_by", .Text("1"))),
         true,
         reason="associate error",
     )
     changed := send(rt, edit, .Text("valid"))
     assert_equal(
-        changed.contains(.SetProp(node, "invalid", .Flag(false))),
+        changed.contains(&.SetProp(node, "invalid", .Flag(false))),
         true,
         reason="clears validation",
     )
     assert_equal(
-        changed.contains(.SetProp(node, "value", .Text("valid"))),
+        changed.contains(&.SetProp(node, "value", .Text("valid"))),
         false,
         reason="keeps caret",
     )
