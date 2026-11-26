@@ -22,4 +22,4 @@ fi
 test "$(git -C "$src" rev-parse HEAD)" = "$revision"
 git -C "$src" diff --quiet
 git -C "$src" diff --cached --binary --full-index | cmp - "$root/scripts/playground-compiler.patch"
-(cd "$src" && cargo build --locked --release -p hd_command)
+(cd "$src" && cargo build --locked --release -p hd_command "$@")

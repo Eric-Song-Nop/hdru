@@ -1,0 +1,11 @@
+## The Native Shell renderer's host trait, implemented by the Rust
+## Wasmtime provider in `native/`.
+use dep.ui.{Command, Packet}
+
+## What a host must provide. `apply!` consumes one batch of commands and
+## `next_event_v2!` waits for the next user event; a handler of 0 ends the
+## event loop.
+@host
+pub trait Surface:
+    fn apply!(&mut self, commands: List[Command]) -> void
+    fn next_event_v2!(&mut self) -> Packet

@@ -1,0 +1,23 @@
+[package]
+name = "hdru-nsh"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+async-channel = "2"
+hd_cache = { path = "../../.toolchain/hd-lang/crates/hd_cache" }
+hd_project = { path = "../../.toolchain/hd-lang/crates/hd_project" }
+hd_run = { path = "../../.toolchain/hd-lang/crates/hd_run" }
+hd_run_wasmtime = { path = "../../.toolchain/hd-lang/crates/hd_run_wasmtime" }
+nsh-core = "=0.5.1"
+nsh-base = { version = "=0.5.1", default-features = false }
+nsh-platform-linux = { version = "=0.5.1", default-features = false }
+
+[dev-dependencies]
+nsh-engine = { version = "=0.5.1", default-features = false }
+nsh-testing = { version = "=0.5.1", default-features = false }
+
+[profile.dev]
+debug = 0

@@ -27,6 +27,7 @@ const ALLOWED = {
   ui: ["reactive"],
   "ui-dom": ["ui"],
   "ui-tui": ["ui"],
+  "ui-nsh": ["ui"],
 };
 
 for (const [pkg, allowed] of Object.entries(ALLOWED)) {
@@ -60,7 +61,7 @@ test("a portable app's library imports only ui", () => {
   }
 });
 
-test("every kind in ui exists in both renderers", () => {
+test("the DOM and terminal providers implement every kind in ui", () => {
   const kinds = new Set();
   for (const file of sources("ui/src")) {
     for (const m of code(read(file)).matchAll(/(?:create_node|styled_node|text_field|container)\("([a-z]+)"/g)) kinds.add(m[1]);
