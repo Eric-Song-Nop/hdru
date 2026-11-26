@@ -224,7 +224,7 @@ A surface implements `apply!` and `next_event_v2!`, and `ui` holds the loop that
 press focuses and clicks, typing edits a focused field, Space toggles a checkbox, and `q` (outside a field)
 or Ctrl-C quits.
 
-The counter also has a [Native Shell](https://nsh.dev/) entry. Run `./scripts/run-nsh.sh` to open it in a GTK window on Linux. The launcher builds the hd guest and runs it in Wasmtime. See [the Native Shell renderer](docs/rendering.md#the-native-shell-renderer) for prerequisites.
+The counter also has a [Native Shell](https://nsh.dev/) entry. Run `./scripts/run-nsh.sh` to open it in an AppKit window on macOS or a GTK window on Linux. The launcher builds the hd guest and runs it in Wasmtime. See [the Native Shell renderer](docs/rendering.md#the-native-shell-renderer) for prerequisites.
 
 The [record editor](examples/editor/src/lib.hd) has 1,000 searchable records, a delayed refresh and a detail form. Choose **Fail next save** to exercise rollback, close the editor, then reopen it and retry. The mount owns each record's save queue, so closing a detail form leaves pending work alive.
 
@@ -272,7 +272,8 @@ cd examples/todos && hd run todos-tui
 | one package | `hd test -p reactive` (or `ui`, `ui-dom`, `ui-tui`) |
 | provider tests and the layering rules | `node --test ui-dom/providers/dom.test.mjs ui-tui/providers/tui.test.mjs layering.test.mjs` |
 | the examples in a terminal | `hd run counter-tui`, `hd run todos-tui`, `hd run fetcher-tui`, `hd run editor-tui`, each in its `examples/` folder |
-| the counter in a Linux desktop window | `./scripts/run-nsh.sh` |
+| the counter in a macOS or Linux desktop window | `./scripts/run-nsh.sh` |
+| the counter as a local macOS app bundle | `./scripts/run-nsh.sh --bundle` |
 | a terminal app driven by keys, printing plain frames | `cd examples/counter && printf '\t\rq' \| hd run counter-tui` |
 | an example under Node, DOM provider, scripted clicks | `cd examples/counter && UI_CLICKS=2,2,1 hd run counter --engine node` |
 | the todos example, typing "milk" and pressing Enter | `cd examples/todos && UI_CLICKS=1,8=milk,10 hd run todos --engine node` |

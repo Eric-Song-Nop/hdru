@@ -310,10 +310,11 @@ tree, pure layout and paint carries over, with taffy in place of `place` and GPU
 
 ## The Native Shell renderer
 
-Run `./scripts/run-nsh.sh` from the workspace root on Linux. It needs Node for
-the hd compiler build, Rust via rustup, and development packages for GTK 4.14
-or later, Pango, and GStreamer core and base plugins. On Debian or Ubuntu,
-install `pkg-config`, `libgtk-4-dev`, `libgstreamer1.0-dev`, and
+Run `./scripts/run-nsh.sh` from the workspace root on macOS or Linux. Both
+need Node for the hd compiler build and Rust via rustup. macOS uses AppKit
+and needs the Xcode command-line tools. Linux needs development packages
+for GTK 4.14 or later, Pango, and GStreamer core and base plugins. On Debian
+or Ubuntu, install `pkg-config`, `libgtk-4-dev`, `libgstreamer1.0-dev`, and
 `libgstreamer-plugins-base1.0-dev`. See the
 [Native Shell Linux guide](https://nsh.dev/docs/linux/).
 
@@ -322,9 +323,16 @@ hd app, add a `ui-nsh` entry and consent to its `Surface` in the app's manifest
 as [the counter does](../examples/counter/hd.toml), then run
 `./scripts/run-nsh.sh PACKAGE_DIR EXECUTABLE`.
 
+On macOS, `./scripts/run-nsh.sh --bundle` builds an ad hoc signed app bundle
+for the host architecture at `examples/counter/build/counter-nsh.app`.
+Open it from Finder or with `open examples/counter/build/counter-nsh.app`.
+Place `--bundle` before the package directory and executable to bundle
+another guest. The generated bundle is for local development.
+
 Wasmtime runs
 the hd guest on a worker thread. The Rust provider sends command batches to
-the NSH engine, which updates a retained tree and renders it with GTK.
+the NSH engine, which updates a retained tree and renders it with AppKit
+or GTK.
 Keyed NSH child regions retain nodes during sibling reorders. Controls
 return generation-tagged events to Wasmtime. Closing the window ends input
 with handler 0 so the hd mount can finish its cleanup.

@@ -13,7 +13,12 @@ hd_run = { path = "../../.toolchain/hd-lang/crates/hd_run" }
 hd_run_wasmtime = { path = "../../.toolchain/hd-lang/crates/hd_run_wasmtime" }
 nsh-core = "=0.5.1"
 nsh-base = { version = "=0.5.1", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.5.1", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos = { version = "=0.5.1", default-features = false }
 
 [dev-dependencies]
 nsh-engine = { version = "=0.5.1", default-features = false }

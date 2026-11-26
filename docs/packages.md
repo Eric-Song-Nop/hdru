@@ -41,7 +41,7 @@ hdru/
 | `ui` | `dep.ui` | the `Parent` and `Target` keys, `type Ui = $ Owner + Parent` and `type Decorate = $ Owner + Target`; `Command`, `PropValue`, `Color`, `Size`, `UiEvent`; `Style`; `Theme`; builders, `show`, `for_each`, inputs, `resource`; `mount`, `dispatch`, `take_commands`; the `Renderer` trait, the loop `run_on!`, and `Recorder`, `scripted`; `on_ready`, `take_keys`; `prop`, `Style.host_prop`, `text_field`, `container` for a renderer's own words. Re-exports `reactive`'s user-facing names | none |
 | `ui-dom` | `dep.ui_dom` | `surface.hd` (`@host trait Surface`), `app.hd` (`run_app!`, the adapter to `Renderer`), `dom.hd` (`attr`, `DomStyle`, `dom_on`, `link`, `textarea`), `providers/dom.mjs` and its Node test | `surface.Surface` → `providers/dom.mjs` |
 | `ui-tui` | `dep.ui_tui` | `surface.hd`, `app.hd`, `providers/tui.mjs` and its Node test | `surface.Surface` → `providers/tui.mjs` |
-| `ui-nsh` | `dep.ui_nsh` | `surface.hd`, `app.hd`, Rust provider and Linux runner in `native/` | `surface.Surface` → native Wasmtime registration |
+| `ui-nsh` | `dep.ui_nsh` | `surface.hd`, `app.hd`, Rust provider and desktop runner in `native/` | `surface.Surface` → native Wasmtime registration |
 | `playground` | | the shell in `src/lib.hd`, its `@host trait Workbench`, and `providers/`: the compiler's wire format and the worker and iframe | `workbench.Workbench` → `providers/workbench.mjs` |
 | `examples/*` | | an app in `src/lib.hd`, with entries `src/main.hd` (DOM) and `src/tui.hd` (terminal) | |
 
@@ -142,7 +142,7 @@ module = "nsh"
 | one package | `hd test -p reactive` (or `ui`, `ui-dom`, `ui-tui`) |
 | provider tests and the layering rules | `node --test ui-dom/providers/dom.test.mjs ui-tui/providers/tui.test.mjs layering.test.mjs` |
 | an app in the terminal | `hd run -p counter counter-tui`, from anywhere in the tree |
-| the counter in Native Shell on Linux | `./scripts/run-nsh.sh` |
+| the counter in Native Shell on macOS or Linux | `./scripts/run-nsh.sh` |
 | an app under Node, DOM provider | `cd examples/counter && UI_CLICKS=2,2,1 hd run counter --engine node` |
 | the browser pages | `./web/build.sh`, which takes the provider from `ui-dom/providers/dom.mjs` |
 | the playground | `node web/playground/build.mjs`, then serve `web/playground/dist/` |

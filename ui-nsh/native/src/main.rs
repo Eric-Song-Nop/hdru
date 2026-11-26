@@ -2,11 +2,13 @@
 
 use std::{path::Path, process::ExitCode};
 
-use gtk::prelude::*;
 use hd_project::{Grant, parse_manifest};
 use hd_run::{Engine as _, GrantValue, Grants, HostSetup, Instance as _, Limits, Outcome};
 use hd_run_wasmtime::{EngineConfig, HostIo, WasmtimeEngine};
+#[cfg(target_os = "linux")]
 use nsh_platform_linux::{AppOptions, AppView, Root, gtk4 as gtk};
+#[cfg(target_os = "macos")]
+use nsh_platform_macos::{AppOptions, AppSource, Root, quit_app, run_app};
 
 use surface::{Batch, Provider};
 use view::{Mount, NshSurface};
@@ -21,6 +23,7 @@ mod view;
 
 const NAME: &str = env!("HDRU_NSH_NAME");
 const MANIFEST: &str = env!("HDRU_NSH_MANIFEST");
+const APP_ID: &str = "org.hdru.NativeShell";
 
 fn guest(provider: Provider) -> Result<u8, String> {
     let engine = WasmtimeEngine::new(EngineConfig::default()).map_err(|e| format!("{e:?}"))?;
@@ -68,19 +71,14 @@ fn guest(provider: Provider) -> Result<u8, String> {
     }
 }
 
-fn run() -> Result<u8, String> {
-    let (provider, batches, events) = Provider::connect();
-    let (done, finished) = async_channel::bounded::<()>(1);
-    let worker = std::thread::spawn(move || {
-        let result = guest(provider);
-        drop(done);
-        result
-    });
+#[cfg(target_os = "linux")]
+fn run_window(mount: Mount, finished: async_channel::Receiver<()>) -> ExitCode {
+    use gtk::prelude::*;
+
     let app = gtk::Application::builder()
-        .application_id("org.hdru.NativeShell")
+        .application_id(APP_ID)
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
         .build();
-    let mount = Mount::new(batches.clone(), events.clone());
     app.connect_activate(move |app| {
         if let Some(window) = app.active_window() {
             window.present();
@@ -107,7 +105,44 @@ fn run() -> Result<u8, String> {
             }
         });
     });
-    let status = app.run_with_args::<&str>(&[]);
+    if app.run_with_args::<&str>(&[]) == gtk::glib::ExitCode::SUCCESS {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_window(mount: Mount, finished: async_channel::Receiver<()>) -> ExitCode {
+    // Wait for the guest on the NSH engine, which starts after the AppKit
+    // window is registered. The guest can fail before its first render.
+    let root = Root::new::<NshSurface>(move || {
+        let finished = finished.clone();
+        nsh_core::prelude::spawn(async move {
+            let _ = finished.recv().await;
+            quit_app();
+        });
+        mount.clone()
+    });
+    run_app(
+        AppSource::Rust(root),
+        AppOptions {
+            app_id: APP_ID.into(),
+            title: NAME.into(),
+            size: (400, 260),
+            ..Default::default()
+        },
+    )
+}
+
+fn run() -> Result<u8, String> {
+    let (provider, batches, events) = Provider::connect();
+    let (done, finished) = async_channel::bounded::<()>(1);
+    let worker = std::thread::spawn(move || {
+        let _done = done;
+        guest(provider)
+    });
+    let status = run_window(Mount::new(batches.clone(), events.clone()), finished);
     events.close();
     batches.close();
     while let Ok(Batch(_, completion)) = batches.try_recv() {
@@ -116,7 +151,7 @@ fn run() -> Result<u8, String> {
     let guest = worker
         .join()
         .map_err(|_| format!("{NAME} worker panicked"))??;
-    Ok(if status == gtk::glib::ExitCode::SUCCESS {
+    Ok(if status == ExitCode::SUCCESS {
         guest
     } else {
         1
@@ -140,7 +175,11 @@ fn native_counter_renders_handles_presses_and_shuts_down() {
     let mount = Mount::new(batches.clone(), events.clone());
     let root = Root::new::<NshSurface>(move || mount.clone());
     let mut config = nsh_engine::EngineConfig::new(root);
-    config.environment.os = nsh_core::platform::Os::Linux;
+    config.environment.os = if cfg!(target_os = "macos") {
+        nsh_core::platform::Os::MacOs
+    } else {
+        nsh_core::platform::Os::Linux
+    };
     let mut app = nsh_testing::Headless::start(config).unwrap();
     let worker = std::thread::spawn(move || guest(provider));
 
