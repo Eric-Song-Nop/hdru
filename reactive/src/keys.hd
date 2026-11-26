@@ -38,7 +38,7 @@ pub struct Collector:
 
 impl Track for Collector:
     fn depend(&mut self, source: SourceId) -> void:
-        if !self.deps.contains(source):
+        if !self.deps.contains(&source):
             self.deps.push(source)
 
 ## A `Track` provider that records nothing: reads under it are untracked.
@@ -63,7 +63,7 @@ pub struct WriteLog:
 
 impl Mutate for WriteLog:
     fn invalidate(&mut self, source: SourceId) -> void:
-        if !self.sources.contains(source):
+        if !self.sources.contains(&source):
             self.sources.push(source)
 
 ## A `Mutate` provider that panics on any write, for `assert_no_writes`.

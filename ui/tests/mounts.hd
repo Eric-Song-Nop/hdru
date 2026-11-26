@@ -28,7 +28,7 @@ it("two mounts route shared updates to their own outboxes and dispose independen
     assert_equal(with_graph(realm, source_count), 0, reason="last subscription released")
     assert_equal(count.peek(), +2, reason="retained model")
     c := mount_in(realm, view)
-    assert_equal(commands(c).contains(.SetText(2, "2")), true, reason="resubscribed")
+    assert_equal(commands(c).contains(&.SetText(2, "2")), true, reason="resubscribed")
     unmount(c)
 
 it("a tracked signal rejects another graph", expect_panic="explicit-panic"):
@@ -143,7 +143,7 @@ it("an explicitly captured Owner allocates signals on its original graph"):
     )
     value := (*saved_value).expect("signal")
     reader := mount_in(realm, fn() -> void $ Ui: text(fn(): "${value.get()}"))
-    assert_equal(commands(reader).contains(.SetText(1, "23")), true, reason="original graph")
+    assert_equal(commands(reader).contains(&.SetText(1, "23")), true, reason="original graph")
 
 it("a retained Parent cannot retarget another mount on the same graph", expect_panic="explicit-panic"):
     saved := box::[Option[*dyn Parent]](.None)

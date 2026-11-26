@@ -1,4 +1,4 @@
-use std.function.Fn
+use std.ops.Fn
 use dep.reactive.{Mutate, Owner, ReadSignal, Reactive, Signal, Track, signal}
 use pkg.keys.Ui
 use pkg.runtime.{Runtime, drop_job, in_runtime, replace_job, runtime, ui_cleanup, ui_effect}

@@ -1,7 +1,7 @@
 ## Ordered models with independent reactive fields. Tickets distinguish a
 ## removed record from a new record with the same application key in a batch.
 use std.cmp.min
-use std.function.Fn
+use std.ops.Fn
 use std.hash.Hash
 use dep.reactive.{Graph, Mutate, Owner, ReadSignal, Signal, Track, graph_signal, memo, signal}
 use pkg.collections.for_each

@@ -259,7 +259,7 @@ pnpm install --frozen-lockfile
 export PATH="$PWD/.toolchain/hd-lang/target/release:$PATH"
 ```
 
-The checkout under `.toolchain` supplies the CLI, standard library, browser host, compiler and glue generator. Its revision and the playground's package-registration patch are in `scripts/`.
+The checkout under `.toolchain` supplies the CLI, standard library, browser host, compiler and glue generator. Its revision and compiler patch are in `scripts/`. The patch adds playground package registration and fixes a Wasm compiler crash when a wrapper forwards multiple remaining parameters.
 
 ```sh
 cd examples/todos && hd run todos-tui

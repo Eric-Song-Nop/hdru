@@ -409,7 +409,7 @@ pub fn diff(last: Style, next: Style) -> List[(string, PropValue)]:
                 .None => out.push((key, PropValue.Unset))
         index += 1
     for (key, value) in next.host_props:
-        if !last.host_props.contains((key, value)):
+        if !last.host_props.contains(&(key, value)):
             out.push((key, value))
     for (key, _) in last.host_props:
         if !has_key(next.host_props, key):

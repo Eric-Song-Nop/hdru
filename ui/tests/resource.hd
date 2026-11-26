@@ -60,7 +60,7 @@ it("a resource is Loading until its job runs, then Ready"):
     reset_for_test()
     _ := mount(profile)
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(2, "loading")), true, reason="loading at mount")
+    assert_equal(commands.contains(&.SetText(2, "loading")), true, reason="loading at mount")
     assert_equal(run_pending!(), [.SetText(2, "ready: user 1")], reason="the loader's value landed")
 
 it("a key change reloads, drops the stale job, and a failure lands as Failed"):

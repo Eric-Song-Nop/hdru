@@ -4,7 +4,7 @@ use pkg.runtime.{ui_effect, ui_cleanup}
 ## `Parent` and `Target` that name the new node. Each takes `style: Style =
 ## Style::empty()` and emits one `SetProp` per set field after `Create`,
 ## then attaches the node.
-use std.function.{Fn, FnMut}
+use std.ops.{Fn, FnMut}
 use dep.reactive.{Mutate, NoTrack, Owner, OwnerId, Reactive, Track, dispose, new_owner}
 use pkg.keys.{NodeId, Parent, Scope, Target, Ui}
 use pkg.protocol.PropValue

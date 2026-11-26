@@ -1,5 +1,5 @@
 ## Owners: who retains computations and when they are disposed.
-use std.function.FnMut
+use std.ops.FnMut
 use pkg.keys.{Mutate, NoTrack, OwnedBy, Owner, OwnerId, Scheduler, Track}
 use pkg.graph.{cleanup_on, new_owner}
 

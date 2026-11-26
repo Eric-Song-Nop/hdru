@@ -42,7 +42,7 @@ it("a descendant reads what an ancestor provided, through any depth"):
             column:
                 themed_text()
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(3, "dark")), true, reason="found two levels up")
+    assert_equal(commands.contains(&.SetText(3, "dark")), true, reason="found two levels up")
 
 it("a missing key or another type is None"):
     reset_for_test()
@@ -51,7 +51,7 @@ it("a missing key or another type is None"):
         column:
             themed_text()
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(2, "none")), true, reason="wrong type")
+    assert_equal(commands.contains(&.SetText(2, "none")), true, reason="wrong type")
 
 it("a nearer provide shadows an outer one"):
     reset_for_test()
@@ -64,10 +64,10 @@ it("a nearer provide shadows an outer one"):
                 themed_text()
             themed_text()
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(2, "outer")), true, reason="outer")
-    assert_equal(commands.contains(.SetText(3, "inner")), true, reason="inner shadows")
+    assert_equal(commands.contains(&.SetText(2, "outer")), true, reason="outer")
+    assert_equal(commands.contains(&.SetText(3, "inner")), true, reason="inner shadows")
     assert_equal(
-        commands.contains(.SetText(4, "outer")),
+        commands.contains(&.SetText(4, "outer")),
         true,
         reason="back outside the inner scope",
     )
@@ -132,7 +132,7 @@ it("a typed key reaches a component through two columns"):
                 row:
                     palette_text()
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(3, "dark under 2")), true, reason="Palette under the row")
+    assert_equal(commands.contains(&.SetText(3, "dark under 2")), true, reason="Palette under the row")
 
 fn titled() -> void $ Ui + Provided[Theme]:
     theme := use_given::[Theme]()
@@ -151,6 +151,6 @@ it("given supplies a value through the generic Provided key"):
             given(Theme { name: "inner" }):
                 titled()
     commands := take_commands()
-    assert_equal(commands.contains(.SetText(3, "solar")), true, reason="outer given")
-    assert_equal(commands.contains(.SetText(4, "live solar")), true, reason="captured lexically")
-    assert_equal(commands.contains(.SetText(6, "inner")), true, reason="a nearer given shadows")
+    assert_equal(commands.contains(&.SetText(3, "solar")), true, reason="outer given")
+    assert_equal(commands.contains(&.SetText(4, "live solar")), true, reason="captured lexically")
+    assert_equal(commands.contains(&.SetText(6, "inner")), true, reason="a nearer given shadows")

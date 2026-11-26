@@ -159,8 +159,8 @@ it("a button's block can hold anything, and address the button"):
             show(fn(): open.get()):
                 text(fn(): "label")
     commands := take_commands()
-    assert_equal(commands.contains(.SetProp(1, "x:label", .Text("toggle"))), true, reason="the button, from its block")
-    assert_equal(commands.contains(.Append(1, 2)), true, reason="a box in the button")
+    assert_equal(commands.contains(&.SetProp(1, "x:label", .Text("toggle"))), true, reason="the button, from its block")
+    assert_equal(commands.contains(&.Append(1, 2)), true, reason="a box in the button")
     dispatch(UiEvent { handler: 1, payload: "" })
     assert_equal(take_commands(), [.Clear(4)], reason="show works inside it")
 
@@ -172,8 +172,8 @@ it("a field's block addresses the field"):
             on("key", fn(key: string) -> void $ Mutate: draft.set(key))
             take_keys(fn(): ["Tab", "Shift+Tab"])
     commands := take_commands()
-    assert_equal(commands.contains(.Listen(1, "key", 2)), true, reason="on")
-    assert_equal(commands.contains(.SetProp(1, "take_keys", .Text("Tab\nShift+Tab"))), true, reason="take_keys")
+    assert_equal(commands.contains(&.Listen(1, "key", 2)), true, reason="on")
+    assert_equal(commands.contains(&.SetProp(1, "take_keys", .Text("Tab\nShift+Tab"))), true, reason="take_keys")
 
 it("take_keys follows what it reads, so a node can give a key back"):
     reset_for_test()

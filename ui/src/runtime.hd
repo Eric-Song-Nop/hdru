@@ -1,8 +1,7 @@
 ## A mount owns its command queue, event handlers, ready callbacks and jobs.
 ## Synchronous builders select a mount while executing. Async tasks keep the
 ## handle and re-enter it when they publish a result.
-use std.ops.Disposable
-use std.function.FnMut
+use std.ops.{Disposable, FnMut}
 use std.task.{Receiver, Sender, channel, race}
 use dep.reactive.{Graph, Reactive, ComputationId, graph, with_graph, run_effect, cleanup_on, dispose, Mutate, NoTrack, Owner, OwnerId, SourceId, Track, WriteLog, batch, flush, new_owner, reset_graph_for_test}
 use pkg.keys.{HandlerId, NodeId, Parent, Scope, Ui}
@@ -13,7 +12,7 @@ use pkg.protocol.{Command, Packet, Payload, UiEvent}
 pub struct Job:
     id: usize
     stop: Receiver[void]
-    pub task: Suspend[void]
+    pub task: Suspend[void, 'static]
 
 struct Listener:
     raw: fn(string) -> void $ Mutate
@@ -165,7 +164,7 @@ pub fn drop_handler(id: HandlerId) -> void:
 
 ## Registers a job and returns its id. The loop takes it with
 ## `take_new_jobs` and hands it to a worker.
-pub fn register_job(task: Suspend[void]) -> usize:
+pub fn register_job(task: Suspend[void, 'static]) -> usize:
     rt := runtime()
     id := rt.next_job
     rt.next_job += 1
@@ -178,7 +177,7 @@ pub fn register_job(task: Suspend[void]) -> usize:
     id
 
 ## Reuse a queued position on refresh. A running job is superseded locally.
-pub fn replace_job(old: usize?, task: Suspend[void]) -> usize:
+pub fn replace_job(old: usize?, task: Suspend[void, 'static]) -> usize:
     rt := runtime()
     match old:
         .Some(id) =>
@@ -196,7 +195,7 @@ pub fn drop_job(id: usize) -> void:
         .None => pass
     if rt.jobs.remove(id).is_some():
         match rt.unposted.index_of(id):
-            .Some(index) => _ := rt.unposted.remove_at(index)
+            .Some(index) => _ := rt.unposted.remove(index)
             .None => pass
 
 ## Drains and returns the queued commands.
@@ -216,7 +215,7 @@ pub fn take_new_jobs() -> List[usize]:
 
 pub fn pop_job(rt: *mut Runtime) -> Job?:
     while !rt.unposted.is_empty():
-        id := rt.unposted.remove_at(0)
+        id := rt.unposted.remove(0)
         match rt.jobs.remove(id):
             .Some(job) => return .Some(job)
             .None => pass

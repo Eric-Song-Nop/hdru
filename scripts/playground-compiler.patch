@@ -1,3 +1,21 @@
+diff --git a/crates/hd_wasm/src/emit/indirect.rs b/crates/hd_wasm/src/emit/indirect.rs
+index e6a717ee8f85d993a88023ec6a229d13e5af90ac..122be75f3069abec3ec013a44e7fb2e47087c573 100644
+--- a/crates/hd_wasm/src/emit/indirect.rs
++++ b/crates/hd_wasm/src/emit/indirect.rs
+@@ -307,10 +307,10 @@ pub(crate) fn wrapper(
+         size = (size + mem.size).next_multiple_of(8);
+         (off, mem)
+     });
+-    let rest = worker.params.len() - plan.len() - usize::from(result.is_some());
+-    for k in 0..rest {
++    let end = worker.params.len() - usize::from(result.is_some());
++    for &param in &worker.params[plan.len()..end] {
+         let at = u32_of(params.len());
+-        params.push(worker.params[plan.len() + k]);
++        params.push(param);
+         plan.push((at, None));
+     }
+     let mut f = m.func(format!("{}#leaves", worker.name), params, results);
 diff --git a/crates/hd_web/examples/host_glue.rs b/crates/hd_web/examples/host_glue.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..71490d6fcf748c4f2ae3c78764cce4f310449bd5
@@ -182,7 +200,7 @@ index 037494321b665e48f0e312b2ba204b7a4f5e9bcd..be49718cdcf7af3a6113bf598cbb3a26
              level: PIPELINE.1,
              ..Packages::default()
 diff --git a/crates/hd_web/src/wire.rs b/crates/hd_web/src/wire.rs
-index 29cdb6fe92b3a66cad41f53c9d9d2d0c5f3121ac..0c5dd8abf8aaeba200628cdc9f4fa56258099d2a 100644
+index 3a63cc0c4ed2fb11ca4d8394671ca9fc065cfe05..fa749da12a077f2460616984d58116a83f6fcf66 100644
 --- a/crates/hd_web/src/wire.rs
 +++ b/crates/hd_web/src/wire.rs
 @@ -15,6 +15,7 @@
@@ -298,7 +316,7 @@ index 29cdb6fe92b3a66cad41f53c9d9d2d0c5f3121ac..0c5dd8abf8aaeba200628cdc9f4fa562
          return Err(WireError("a REPL input or outcome carries no files"));
      }
      Ok(Request {
-@@ -701,6 +761,101 @@ mod tests {
+@@ -690,6 +750,101 @@ mod tests {
          );
      }
  

@@ -1,5 +1,5 @@
 ## Signals, memos and effects.
-use std.function.{Fn, FnMut}
+use std.ops.{Fn, FnMut}
 use pkg.keys.{Collector, ComputationId, Mutate, NoTrack, NoWrites, Owner, Reactive, SourceId, Track}
 use pkg.graph.{
     Computation,

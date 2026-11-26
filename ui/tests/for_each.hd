@@ -32,7 +32,7 @@ fn add(xs: List[Todo]) -> List[Todo]:
 
 fn drop_first(xs: List[Todo]) -> List[Todo]:
     let mut ys = xs
-    _ := ys.remove_at(0)
+    _ := ys.remove(0)
     ys
 
 fn prepend(xs: List[Todo]) -> List[Todo]:
@@ -71,11 +71,11 @@ it("for_each mounts one row per item under a list node"):
     reset_for_test()
     _ := mount(todos_view)
     commands := take_commands()
-    assert_equal(commands.contains(.Create(12, "fragment")), true, reason="the list node")
-    assert_equal(commands.contains(.Append(12, 13)), true, reason="row 1 under the list")
-    assert_equal(commands.contains(.SetText(14, "a")), true, reason="row 1 text")
-    assert_equal(commands.contains(.Append(12, 15)), true, reason="row 2 under the list")
-    assert_equal(commands.contains(.SetText(16, "b")), true, reason="row 2 text")
+    assert_equal(commands.contains(&.Create(12, "fragment")), true, reason="the list node")
+    assert_equal(commands.contains(&.Append(12, 13)), true, reason="row 1 under the list")
+    assert_equal(commands.contains(&.SetText(14, "a")), true, reason="row 1 text")
+    assert_equal(commands.contains(&.Append(12, 15)), true, reason="row 2 under the list")
+    assert_equal(commands.contains(&.SetText(16, "b")), true, reason="row 2 text")
 
 it("rows keep identity across updates and emit only what changed"):
     reset_for_test()
